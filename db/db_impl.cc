@@ -3648,6 +3648,7 @@ Status DBImpl::PutImpl(const WriteOptions& opt, const Slice& key, const Slice& v
 
   // Step 1: Find the partition for key
   uint64_t k = decode_size64((unsigned char*)key.data());
+  uint16_t key_range = encode_key_range((unsigned char*)key.data());
   int p = DBImpl::getPartition(k);
 
   //fprintf(stderr, "PutImpl key str is %s and key int is %llu\n", key.ToString(true).c_str(), k);
@@ -3752,6 +3753,7 @@ Status DBImpl::PutImpl(const WriteOptions& opt, const Slice& key, const Slice& v
     }
   } else {
     add_item_sync(partitions[p].slabContext, item, item_size, res, load_phase_);
+    my_add_item_sync(partitions[p].slabContext, item, item_size, res, load_phase_, key_range);
     //fprintf(stderr, "insert key %llu done\n", k);
 
     if (options_.migration_metric == 2 && !(load_phase_)) {
@@ -4517,7 +4519,7 @@ void ClockCache::GenClockProbDist(float pop_threshold){
   uint32_t num_clk2 = clock_cache_value_hist_[2];
   uint32_t num_clk3 = clock_cache_value_hist_[3];
   fprintf(stderr, "CLOCK: clock hist values %lu %lu %lu %lu\n", num_clk0, num_clk1, num_clk2, num_clk3);
-  uint32_t total = num_clk0 + num_clk1 + num_clk2 + num_clk3;
+  uint32_t total = num_clk0 + num_clk1 + num_clk2 + num_clk3 + 1;
   for (int i=0; i<=CLOCK_BITS_MAX_VALUE; i++){
     clk_prob_dist[i] = -1;
   }
