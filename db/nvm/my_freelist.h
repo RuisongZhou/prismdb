@@ -4,8 +4,9 @@
 #include "my_headers.h"
 #include "my_slab.h"
 
-struct my_bitmap {
+struct my_freelist {
 
 };
 
-void init_freelist(struct *free_map);
+
+void init_block_freelist(struct *my_freelist);

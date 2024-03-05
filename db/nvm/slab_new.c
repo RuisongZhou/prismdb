@@ -389,7 +389,7 @@ void add_item_sync(struct slab_context_new *ctx, char *item, size_t item_size, s
 void insert_item_at_idx(struct slab_new *slab, char *item, size_t item_size, size_t idx, struct op_result *res, bool load_phase_) {
 
    // 1. Get the disk page data
-   size_t page_num = item_page_num_new(slab, idx);
+   size_t page_num = item_page_num_new(slab, idx); //第几个page
    #ifdef USE_O_DIRECT
    char page[PAGE_SIZE] __attribute__((aligned(PAGE_SIZE)));
    #else
