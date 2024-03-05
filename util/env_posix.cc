@@ -680,7 +680,7 @@ class PosixEnv : public Env {
     return Status::OK();
   }
 
-  //void Schedule(void (*background_work_function)(void* background_work_arg), void* background_work_arg) override;
+  virtual void Schedule(void (*function)(void*), void* arg);  
   void SchedulePartition(void (*background_work_function)(void* background_work_arg, uint8_t pid),
                 void* background_work_arg, uint8_t pid) override;
 
@@ -784,9 +784,31 @@ class PosixEnv : public Env {
   port::Mutex background_work_mutex_[50];
   port::CondVar background_work_cv_[50] GUARDED_BY(background_work_mutex_);
   bool started_background_thread_[50] GUARDED_BY(background_work_mutex_);
-
   std::queue<BackgroundWorkItem> background_work_queue_[50]
       GUARDED_BY(background_work_mutex_);
+
+  //origin leveldb
+  void PthreadCall(const char* label, int result) {
+    if (result != 0) {
+      fprintf(stderr, "pthread %s: %s\n", label, strerror(result));
+      abort();
+    }
+  }
+
+  // BGThread() is the body of the background thread
+  void BGThread();
+  static void* BGThreadWrapper(void* arg) {
+    reinterpret_cast<PosixEnv*>(arg)->BGThread();
+    return nullptr;
+  }
+  pthread_mutex_t mu_;
+  pthread_cond_t bgsignal_;
+  pthread_t bgthread_;
+  bool started_bgthread_;
+  // Entry per Schedule() call
+  struct BGItem { void* arg; void (*function)(void*); };
+  typedef std::deque<BGItem> BGQueue;
+  BGQueue queue_;
 
   PosixLockTable locks_;  // Thread-safe.
   Limiter mmap_limiter_;  // Thread-safe.
@@ -825,26 +847,33 @@ PosixEnv::PosixEnv() : mmap_limiter_(MaxMmaps()), fd_limiter_(MaxOpenFiles()) {
         //fd_limiter_ = MaxOpenFiles();
       }
 
-/*void PosixEnv::Schedule(
-    void (*background_work_function)(void* background_work_arg),
-    void* background_work_arg) {
-  background_work_mutex_.Lock();
-
-  // Start the background thread, if we haven't done so already.
-  if (!started_background_thread_) {
-    started_background_thread_ = true;
-    std::thread background_thread(PosixEnv::BackgroundThreadEntryPoint, this);
-    background_thread.detach();
+void PosixEnv::Schedule(void (*function)(void*), void* arg) {
+  // 不管这个
+  PthreadCall("lock", pthread_mutex_lock(&mu_));
+  // 如果还没有开始线程，那么这里开始线程
+  // Start background thread if necessary
+  if (!started_bgthread_) {
+    started_bgthread_ = true;
+    PthreadCall(
+        "create thread",
+        pthread_create(&bgthread_, nullptr,  &PosixEnv::BGThreadWrapper, this));
   }
 
-  // If the queue is empty, the background thread may be waiting for work.
-  if (background_work_queue_.empty()) {
-    background_work_cv_.Signal();
+  // If the queue is currently empty, the background thread may currently be
+  // waiting.
+  // 如果这里还没有任何任务，那么等待
+  if (queue_.empty()) {
+    PthreadCall("signal", pthread_cond_signal(&bgsignal_));
   }
 
-  background_work_queue_.emplace(background_work_function, background_work_arg);
-  background_work_mutex_.Unlock();
-}*/
+  // Add to priority queue
+  // 把任务放到队列中开始等待执行
+  queue_.push_back(BGItem());
+  queue_.back().function = function;
+  queue_.back().arg = arg;
+
+  PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+}
 
 // TODO: check whole function
 void PosixEnv::SchedulePartition(
@@ -886,6 +915,28 @@ void PosixEnv::BackgroundThreadMain(uint8_t pid) {
 
     background_work_mutex_[pid].Unlock();
     background_work_function(background_work_arg, pid);
+  }
+}
+
+// 后台执行任务的引擎
+void PosixEnv::BGThread() {
+  while (true) {
+    // Wait until there is an item that is ready to run
+    // 如果队列为空，那么等待之
+    PthreadCall("lock", pthread_mutex_lock(&mu_));
+    while (queue_.empty()) {
+      PthreadCall("wait", pthread_cond_wait(&bgsignal_, &mu_));
+    }
+
+    // 注意这里操作的顺序
+    void (*function)(void*) = queue_.front().function;
+    void* arg = queue_.front().arg;
+    queue_.pop_front();
+
+    PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+
+    // 这里开始调用函数
+    (*function)(arg);
   }
 }
 

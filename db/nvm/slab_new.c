@@ -337,14 +337,14 @@ int close_slab_fds(struct slab_context_new *ctx) {
  * Double the size of a slab on disk
  */
 struct slab_new* resize_slab_new(struct slab_new *s) {
-   if(s->size_on_disk < 10000000000LU) {
+   if(s->size_on_disk < 500000000LU) {
       s->size_on_disk *= 2;
       if(fallocate(s->fd, 0, 0, s->size_on_disk))
          fprintf(stderr, "Cannot resize slab (item size %lu) new size %lu\n", s->item_size, s->size_on_disk);
       s->nb_max_items *= 2;
    } else {
       size_t nb_items_per_page = PAGE_SIZE / s->item_size;
-      s->size_on_disk += 10000000000LU;
+      s->size_on_disk += 500000000LU;
       if(fallocate(s->fd, 0, 0, s->size_on_disk))
          fprintf(stderr, "Cannot resize slab (item size %lu) new size %lu\n", s->item_size, s->size_on_disk);
       s->nb_max_items = s->size_on_disk / PAGE_SIZE * nb_items_per_page;

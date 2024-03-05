@@ -376,6 +376,7 @@ class DBImpl : public DB {
     port::Mutex mutex;
     port::CondVar background_work_finished_signal;
     bool background_compaction_scheduled;
+    bool background_lower_compaction_scheduled;
     // Set of table files to protect from deletion because they are
     // part of ongoing compactions.
     std::set<uint64_t> pending_outputs;
@@ -500,7 +501,7 @@ class DBImpl : public DB {
 
   // Delete any unneeded files and stale in-memory entries.
   void RemoveObsoleteFiles(PartitionContext* p_ctx = nullptr) EXCLUSIVE_LOCKS_REQUIRED(mutex_);
-
+  void DeleteObsoleteFiles() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   // Compact the in-memory write buffer to disk.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful.
   // Errors are recorded in bg_error_.
@@ -520,15 +521,23 @@ class DBImpl : public DB {
 
   void RecordBackgroundError(const Status& s);
 
-  void MaybeScheduleCompaction(uint8_t pid=0, MigrationReason reason=MIG_REASON_OPTANE_SIZE) EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  void MaybeScheduleCompaction(uint8_t pid, MigrationReason reason=MIG_REASON_OPTANE_SIZE) EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  void MaybeScheduleCompaction() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   static void BGWork(void* db, uint8_t pid);
+  static void BGWork(void* db);
   void BackgroundCall(PartitionContext* p_ctx);
+  void BackgroundCall();
+
   void BackgroundCompaction(PartitionContext* p_ctx) EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  void BackgroundCompaction() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   void CleanupCompaction(PartitionContext* p_ctx, CompactionState* compact)
+      EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  void CleanupCompaction(CompactionState* compact)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   Status DoCompactionWork(PartitionContext* p_ctx, CompactionState* compact, std::vector<index_entry>& migration_keys, std::vector<uint64_t>& migration_keys_prefix, int start_bid, int end_bid, std::vector<std::pair<Slice, Slice>>& upsert_keys);
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
-
+  Status DoCompactionWork(CompactionState* compact)
+      EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   Status OpenCompactionOutputFile(PartitionContext* p_ctx, CompactionState* compact);
   Status FinishCompactionOutputFile(CompactionState* compact, Iterator* input);
   Status InstallCompactionResults(CompactionState* compact)

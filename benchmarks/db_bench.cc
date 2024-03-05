@@ -1696,7 +1696,7 @@ class Benchmark {
 	
         // flush os page cache before running the next experiment 
         system("sudo sync; echo 3 | sudo tee /proc/sys/vm/drop_caches");
-        std::this_thread::sleep_for(std::chrono::seconds(150)); // original 150
+        std::this_thread::sleep_for(std::chrono::seconds(1)); // original 150
         db_->ReportMigrationStats();
         db_->ResetMigrationStats();
 

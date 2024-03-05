@@ -203,6 +203,7 @@ class LEVELDB_EXPORT Env {
   // added to the same Env may run concurrently in different threads.
   // I.e., the caller may not assume that background work items are
   // serialized.
+  virtual void Schedule( void (*function)(void* arg), void* arg) = 0;
   virtual void SchedulePartition(void (*function)(void* arg1, uint8_t pid), void* arg1, uint8_t pid) = 0;
 
   // Start a new thread, invoking "function(arg)" within the new thread.
@@ -393,9 +394,9 @@ class LEVELDB_EXPORT EnvWrapper : public Env {
   }
   Status UnlockFile(FileLock* l) override { return target_->UnlockFile(l); }
   
-  /*void Schedule(void (*f)(void*), void* a) override {
+  void Schedule(void (*f)(void*), void* a) override {
     return target_->Schedule(f, a);
-  }*/
+  }
   void SchedulePartition(void (*f)(void*, uint8_t), void* a, uint8_t pid) override {
     return target_->SchedulePartition(f, a, pid);
   }

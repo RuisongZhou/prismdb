@@ -1150,7 +1150,7 @@ struct comp
 
 void DBImpl::MaybeScheduleCompaction(uint8_t pid, MigrationReason reason) {
   PartitionContext* p_ctx = &partitions[pid];
-  //p_ctx->mutex.AssertHeld();
+  // p_ctx->mutex.AssertHeld();
   if (p_ctx->background_compaction_scheduled) {
     // Already scheduled
     //fprintf(stderr, "PRISMDB: migration already scheduled\n");
@@ -1171,34 +1171,44 @@ void DBImpl::MaybeScheduleCompaction(uint8_t pid, MigrationReason reason) {
     p_ctx->mig_reason = reason;
     env_->SchedulePartition(&DBImpl::BGWork, this, pid);
   }
-}
 
-/*void DBImpl::MaybeScheduleCompaction(PartitionContext* p_ctx) {
   mutex_.AssertHeld();
   if (background_compaction_scheduled_) {
-    // Already scheduled
-    //fprintf(stderr, "PRISMDB: migration already scheduled\n");
   } else if (shutting_down_.load(std::memory_order_acquire)) {
-    // DB is being deleted; no more background compactions
   } else if (!bg_error_.ok()) {
-    // Already got an error; no more changes
-  // } else if (imm_ == nullptr && manual_compaction_ == nullptr &&
-  //            !versions_->NeedsCompaction()) {
-  //   // No work to be done
+  } else if (imm_ == nullptr && manual_compaction_ == nullptr &&
+             !versions_->NeedsCompaction()) {
+    // No work to be done
   } else {
+    // 后台的compaction开始调度
     background_compaction_scheduled_ = true;
-    //fprintf(stderr, "PRISMDB: scheduled a new migration\n");
-    //env_->Schedule(&DBImpl::BGWork, this);
-    env_->SchedulePartition(&DBImpl::BGWork, this, reinterpret_cast<void*>(p_ctx));
+    env_->Schedule(&DBImpl::BGWork, this);
   }
-}*/
+
+}
+
+void DBImpl::MaybeScheduleCompaction(){
+  mutex_.AssertHeld();
+  if (background_compaction_scheduled_) {
+  } else if (shutting_down_.load(std::memory_order_acquire)) {
+  } else if (!bg_error_.ok()) {
+  } else if (imm_ == nullptr && manual_compaction_ == nullptr &&
+             !versions_->NeedsCompaction()) {
+    // No work to be done
+  } else {
+    // 后台的compaction开始调度
+    background_compaction_scheduled_ = true;
+    env_->Schedule(&DBImpl::BGWork, this);
+  }
+}
 
 void DBImpl::BGWork(void* db, uint8_t pid) {
   PartitionContext* p_ctx = &(reinterpret_cast<DBImpl*>(db)->partitions[pid]);
-  //if (reinterpret_cast<DBImpl*>(db)->options_.migration_logging) {
-  //  fprintf(stderr, "%X\t BackgroundCompaction partition=%d reason=%d\n", std::this_thread::get_id(), pid, p_ctx->mig_reason);
-  //}
   reinterpret_cast<DBImpl*>(db)->BackgroundCall(p_ctx);
+}
+
+void DBImpl::BGWork(void* db) {
+  reinterpret_cast<DBImpl*>(db)->BackgroundCall();
 }
 
 void DBImpl::BackgroundCall(PartitionContext* p_ctx) {
@@ -1231,27 +1241,174 @@ void DBImpl::BackgroundCall(PartitionContext* p_ctx) {
     }
     while(p_ctx->size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold*migration_lower_bound/(float)numPartitions));
   }
-
   p_ctx->background_compaction_scheduled = false;
   p_ctx->background_work_finished_signal.SignalAll();
 
 }
 
-/*void DBImpl::BackgroundCall(PartitionContext* p_ctx) {
+void DBImpl::BackgroundCall() {
   MutexLock l(&mutex_);
-  assert(background_compaction_scheduled_); // TODO:
+  // 既然已经开始执行，那么肯定已经经过了调度
+  assert(background_compaction_scheduled_);
+  // 如果要关闭了
   if (shutting_down_.load(std::memory_order_acquire)) {
     // No more background work when shutting down.
+    // 后台是不是出错了
   } else if (!bg_error_.ok()) {
     // No more background work after a background error.
   } else {
-    BackgroundCompaction(p_ctx);
+    // 如果啥事都没有，那么开始准备compaction吧。
+    BackgroundCompaction();
+  }
+  // 注意，这里调度完成之后，需要把这个bool变量设置为false.
+  background_compaction_scheduled_ = false;
+  MaybeScheduleCompaction();
+  background_work_finished_signal_.SignalAll();
+}
+
+void DBImpl::BackgroundCompaction() {
+  mutex_.AssertHeld();
+  Compaction* c;
+  // 看一下是否设置了手动compaction.
+  // 在ceph中会主动调用，进而触发compaction.
+
+  //去除manual compaction内容，不会手动触发
+  c = versions_->PickCompaction();
+  Status status;
+  if (c == nullptr) {
+    // Nothing to do
+  } else if ( c->IsTrivialMove()) {
+    // 是否需要移动Trivial：不重要的，微不足道的
+    // 返回 True,trivial Compaction，则直接将文件移入 level + 1 层即可
+    // Move file to next level
+    assert(c->num_input_files(0) == 1);
+    FileMetaData* f = c->input(0, 0);
+    c->edit()->RemoveFile(c->level(), f->number);
+    c->edit()->AddFile(c->level() + 1, f->number, f->file_size, f->smallest,
+                       f->largest);
+    status = versions_->LogAndApply(c->edit(), &mutex_);
+    if (!status.ok()) {
+      RecordBackgroundError(status);
+    }
+
+    // 这个不用管，LevelSummaryStorage只是用来生成可读性较强的信息。
+    VersionSet::LevelSummaryStorage tmp;
+    Log(options_.info_log, "Moved #%lld to level-%d %lld bytes %s: %s\n",
+        static_cast<unsigned long long>(f->number), c->level() + 1,
+        static_cast<unsigned long long>(f->file_size),
+        status.ToString().c_str(), versions_->LevelSummary(&tmp));
+  } else {
+    // 如果不能把level i的文件放到level i + 1层上去
+    CompactionState* compact = new CompactionState(c);
+    status = DoCompactionWork(compact);
+    if (!status.ok()) {
+      RecordBackgroundError(status);
+    }
+    CleanupCompaction(compact);
+    c->ReleaseInputs();
+    DeleteObsoleteFiles();
+  }
+  // 如果c为空，这里会不会炸掉?
+  delete c;
+
+  // 这里只是简单地看一下是否需要输出compaction的错误信息
+  if (status.ok()) {
+    // Done
+  } else if (shutting_down_.load(std::memory_order_acquire)) {
+    // Ignore compaction errors found during shutting down
+  } else {
+    Log(options_.info_log, "Compaction error: %s", status.ToString().c_str());
   }
 
-  background_compaction_scheduled_ = false;
+}
 
-  background_work_finished_signal_.SignalAll();
-}*/
+
+void DBImpl::CleanupCompaction(CompactionState* compact) {
+  mutex_.AssertHeld();
+  if (compact->builder != nullptr) {
+    // May happen if we get a shutdown call in the middle of compaction
+    compact->builder->Abandon();
+    delete compact->builder;
+  } else {
+    assert(compact->outfile == nullptr);
+  }
+  delete compact->outfile;
+  for (size_t i = 0; i < compact->outputs.size(); i++) {
+    const CompactionState::Output& out = compact->outputs[i];
+    pending_outputs_.erase(out.number);
+  }
+  delete compact;
+}
+
+// 这个函数要做的事
+// live = pending_outputs_ + files_in(version_set_);
+// all_files_in_dir = GetDBFiles()
+// to_delete_files = all_files_in_dir - live
+void DBImpl::DeleteObsoleteFiles() {
+  mutex_.AssertHeld();
+
+  if (!bg_error_.ok()) {
+    // After a background error, we don't know whether a new version may
+    // or may not have been committed, so we cannot safely garbage collect.
+    return;
+  }
+
+  std::set<uint64_t> live = pending_outputs_;
+  versions_->AddLiveFiles(&live);
+
+  // 拿出所有db/目录里面的文件
+  std::vector<std::string> filenames;
+  env_->GetChildren(dbname_, &filenames);  // Ignoring errors on purpose
+  // 序号
+  uint64_t number;
+  // 类型
+  FileType type;
+  // 遍历所有的文件
+  for (size_t i = 0; i < filenames.size(); i++) {
+    // 取出文件的序号，类型
+    if (ParseFileName(filenames[i], &number, &type)) {
+      // 默认是保留这个文件
+      bool keep = true;
+      switch (type) {
+        case kLogFile:
+          keep = ((number >= versions_->LogNumber()) ||
+                  (number == versions_->PrevLogNumber()));
+          break;
+        // MANIFEST文件的WAL日志文件
+        case kDescriptorFile:
+          // Keep my manifest file, and any newer incarnations'
+          // (in case there is a race that allows other incarnations)
+          keep = (number >= versions_->ManifestFileNumber());
+          break;
+        case kTableFile:
+          // 如果是sst文件，那么如果不在live里面，就要干掉
+          keep = (live.find(number) != live.end());
+          break;
+        case kTempFile:
+          // Any temp files that are currently being written to must
+          // be recorded in pending_outputs_, which is inserted into "live"
+          keep = (live.find(number) != live.end());
+          break;
+        // 其他CURRENT/lock/LOG文件，都保留
+        case kCurrentFile:
+        case kDBLockFile:
+        case kInfoLogFile:
+          keep = true;
+          break;
+      }
+
+      if (!keep) {
+        if (type == kTableFile) {
+          table_cache_->Evict(number);
+        }
+        // 真正删除文件
+        Log(options_.info_log, "Delete type=%d #%lld\n", static_cast<int>(type),
+            static_cast<unsigned long long>(number));
+        env_->DeleteFile(dbname_ + "/" + filenames[i]);
+      }
+    }
+  }
+}
 
 // PRISMDB
 // Function selects the keys that need to be migrated from optane to flash and
@@ -1502,70 +1659,6 @@ float DBImpl::find_precise_M_new(PartitionContext* p_ctx, uint64_t min_key, uint
   return M;
 }
 
-//float DBImpl::find_approx_M(uint64_t min_key, uint64_t max_key, uint64_t sst_size) {
-//  //fprintf(stderr, "DEBUG: find_approx_M is called; min key %llu, max key %llu, sst_size %llu\n", min_key, max_key, sst_size);
-//  int start_bid = min_key / bucket_sz;
-//  int end_bid = max_key / bucket_sz;
-//  // calculate M = (1 - p) / N * (1 - s) where
-//  // p: popularity ratio = # of popular keys / total # of keys in the key range
-//  // N: fanout parameter  = the key range size / overlapped QLC file size
-//  // s: overlap ratio = # of overlapped keys / total # of keys in the QLC file
-//  float p = 0;
-//  float N = 0;
-//  float s = 0;
-//  float M = 0;
-//
-//  uint64_t total_keys = 0;
-//  uint64_t pop_keys = 0;
-//  uint64_t range_sz = max_key - min_key;
-//  //fprintf(stderr, "DEBUG: range size is %llu\n", range_sz);
-//
-//  // TODO: rename overlap_sz to be bucket_overlap_sz;
-//  for (int i = start_bid; i <= end_bid; i++) {
-//    uint64_t min_b = i * bucket_sz;
-//    uint64_t max_b = (i + 1) * bucket_sz;
-//    uint64_t overlap_sz;
-//
-//    if (min_b < min_key && max_b > max_key) {
-//      overlap_sz = max_b - min_b;
-//      float f = (float) range_sz / overlap_sz;
-//      total_keys += BucketList[i].num_total_keys * f;
-//      pop_keys += BucketList[i].num_pop_keys * f;
-//      s += (float)BucketList[i].overlap_ratio;
-//      //fprintf(stderr, "DEBUG: 1, bid %d bucket_total_keys %d bucket_pop_keys %d overlap size is %llu, f is %.3f, s add by %.3f\n", i, BucketList[i].num_total_keys, BucketList[i].num_pop_keys, overlap_sz, f, BucketList[i].overlap_ratio);
-//
-//    } else {
-//      if (min_b < min_key && max_b < max_key) {
-//        overlap_sz = max_b - min_key;
-//        //fprintf(stderr, "DEBUG: 2, overlap size is %llu\n", overlap_sz);
-//      } else if (min_b > min_key && max_b < max_key) {
-//        overlap_sz = max_b - min_b;
-//        //fprintf(stderr, "DEBUG: 3, overlap size is %llu\n", overlap_sz);
-//      } else { // min_b > min_key && max_b > max_key
-//        overlap_sz = max_key - min_b;
-//        //fprintf(stderr, "DEBUG: 4, overlap size is %llu\n", overlap_sz);
-//      }
-//      float f1 = (float) overlap_sz / bucket_sz;
-//      float f2 = (float) overlap_sz / range_sz;
-//      total_keys += BucketList[i].num_total_keys * f1;
-//      pop_keys += BucketList[i].num_pop_keys * f1;
-//      s += (float) BucketList[i].overlap_ratio * f2;
-//      //fprintf(stderr, "DEBUG: bucket %d has num_total_keys %llu, has num_pop_keys %llu, and overlap ratio %.5f\n", i, BucketList[i].num_total_keys, BucketList[i].num_pop_keys, BucketList[i].overlap_ratio);
-//      //fprintf(stderr, "DEBUG: 2, overlap size is %llu, f1 is %.5f, f2 is %.5f\n", overlap_sz, f1, f2);
-//    }
-//    //fprintf(stderr, "DEBUG: bucket %d, total keys %llu, pop keys %llu, s is %.3f\n", i, total_keys, pop_keys, s);
-//  }
-//
-//  if (total_keys == 0 || sst_size == 0) {
-//    return 0;
-//  }
-//  p = (float) pop_keys / total_keys;
-//  N = (float) sst_size / (total_keys * maxKVSizeBytes);
-//  M = (1 - p)/(N * (1 - s));
-//  //fprintf(stderr, "for this key range, estimated pop_keys is %llu, total_keys is %llu\n", pop_keys, total_keys);
-//  //fprintf(stderr, "%X\t approx_M (sst_size=%dMB) p %.3f N %.3f s %.3f M %.3f\n", std::this_thread::get_id(), sst_size/(2<<19), p, N, s, M);
-//  return M;
-//}
 
 float DBImpl::find_approx_M(uint64_t min_key, uint64_t max_key, uint64_t sst_size) {
   //fprintf(stderr, "DEBUG: find_approx_M is called; min key %llu, max key %llu, sst_size %llu\n", min_key, max_key, sst_size);
@@ -2188,13 +2281,15 @@ Status DBImpl::OpenCompactionOutputFile(PartitionContext* p_ctx, CompactionState
   assert(compact->builder == nullptr);
   uint64_t file_number;
   {
-    using namespace std::chrono;
-    auto start = high_resolution_clock::now();
     mutex_.Lock(); //ASHL
-    auto end = high_resolution_clock::now();
     file_number = versions_->NewFileNumber();
-    //pending_outputs_.insert(file_number);
-    p_ctx->pending_outputs.insert(file_number);
+  
+    if (p_ctx) {
+       p_ctx->pending_outputs.insert(file_number);
+    } else {
+       pending_outputs_.insert(file_number);
+    }
+   
     //p_ctx->files[file_number] = 1;
     //fprintf(stderr, "%X\t added new file to pending_outputs id %d\n", std::this_thread::get_id(), file_number);
     CompactionState::Output out;
@@ -2203,7 +2298,6 @@ Status DBImpl::OpenCompactionOutputFile(PartitionContext* p_ctx, CompactionState
     out.largest.Clear();
     compact->outputs.push_back(out);
     mutex_.Unlock();
-    p_ctx->mig_compaction_lock += duration_cast<nanoseconds>(end-start).count();
   }
 
   //fprintf(stderr, "%X\t new compaction file id %d\n", std::this_thread::get_id(), file_number);
@@ -2390,15 +2484,6 @@ Status DBImpl::DoCompactionWork(PartitionContext* p_ctx, CompactionState* compac
 
   // HACK: figure out a good max sst file size
   uint64_t max_fsize = compact->compaction->MaxOutputFileSize();
-  /*if ((is_twitter_ == true) && (p_ctx->num_warmup_migrations < 1)){
-    if (compact->compaction->num_input_files(1) != 0){
-      uint64_t input_fsize = p_ctx->file_entries[(compact->compaction->input(1, 0))->number];
-      if (input_fsize > 0.75*compact->compaction->MaxOutputFileSize()){
-        max_fsize = (compact->compaction->MaxOutputFileSize())/2;
-      }
-      fprintf(stderr, "TWITTER: DoCompactionWork input_fsize %llu, max_fsize %llu new_max_fsize %llu\n", input_fsize, compact->compaction->MaxOutputFileSize(), max_fsize);
-    }
-  }*/
 
   input->SeekToFirst();
   Status status;
@@ -2438,48 +2523,23 @@ Status DBImpl::DoCompactionWork(PartitionContext* p_ctx, CompactionState* compac
     high_resolution_clock::time_point begin_optane;
     high_resolution_clock::time_point end_optane;
     uint64_t qlc_iter_next_time = 0;
-    //auto s0 = high_resolution_clock::now();
 
     if (input->Valid()){
-      //auto s1 = high_resolution_clock::now();
       if (iter_key.DecodeFrom(input->key()) == false) {
         // reads the internal key slice string into internal key object
         fprintf(stderr, "ERROR: Unexpected-0\n");
       }
-      //fprintf(stderr, "%X\ts1 %llu\n", std::this_thread::get_id(), duration_cast<nanoseconds>(high_resolution_clock::now() - s1).count());
-
+ 
       if (mig_key_idx < migration_keys.size()) {
-        //mig_key = migration_keys[mig_key_idx].Encode();
-	if (prev_mig_key_idx != mig_key_idx){
-          //begin_optane = high_resolution_clock::now();
-          read_item_key_val(p_ctx->slabContext, &migration_keys[mig_key_idx], &kv);
-          // HACK: overwrite key with migration_keys_prefix[i]
-        
-          (void) encode_size64(kv.buf, migration_keys_prefix[mig_key_idx]); 
-          //end_optane = high_resolution_clock::now();
-          prev_mig_key_idx = mig_key_idx;
+        if (prev_mig_key_idx != mig_key_idx){
+            read_item_key_val(p_ctx->slabContext, &migration_keys[mig_key_idx], &kv);
+            // HACK: overwrite key with migration_keys_prefix[i]
+            (void) encode_size64(kv.buf, migration_keys_prefix[mig_key_idx]); 
+            prev_mig_key_idx = mig_key_idx;
         }
-	//fprintf(stderr, "optane_read_time-1 %llu\n", duration_cast<nanoseconds>(end_optane - begin_optane).count());
-        //p_ctx->mig_compaction_read_optane += duration_cast<nanoseconds>(end_optane - begin_optane).count();
+	
         auto mig_user_key = Slice((const char*)kv.buf, kv.key_size); //kv.buf
-
-	//auto s2 = high_resolution_clock::now();
         int comp = user_comparator()->Compare(mig_user_key, iter_key.user_key());
-	//fprintf(stderr, "%X\ts2 %llu\n", std::this_thread::get_id(), duration_cast<nanoseconds>(high_resolution_clock::now() - s2).count());
-
-        //fprintf(stderr, "comp %d mig user key %s size is %llu , iter user key %s size is %llu\n", comp, mig_user_key.ToString(true).c_str(), mig_user_key.size(), iter_key.user_key().ToString(true).c_str(), iter_key.user_key().size());
-
-        /*if (ParseInternalKey(mig_key, &p_mkey) == false){
-          fprintf(stderr, "PRISMDB: Unexpected-1\n");
-          assert(false);
-        }
-        if (ParseInternalKey(input->key(), &p_ikey) == false){
-          fprintf(stderr, "PRISMDB: Unexpected-2\n");
-	  fprintf(stderr, "input iter key %s\n", input->key().ToString(true).c_str());
-          assert(false);
-        }*/
-
-        //fprintf(stderr, "comparison %d mig key %s sn %lu type %d iter key %s sn %lu type %d\n", comp, p_mkey.user_key.ToString(true).c_str(), p_mkey.sequence, p_mkey.type, p_ikey.user_key.ToString(true).c_str(), p_ikey.sequence, p_ikey.type);
 
         if (comp <= 0){
           // mig user key is smaller than iter key
@@ -2494,24 +2554,16 @@ Status DBImpl::DoCompactionWork(PartitionContext* p_ctx, CompactionState* compac
               input->Next();
               total_sst_keys_read++;
               total_same_keys++;
-              //qlc_iter_next_time = duration_cast<nanoseconds>(high_resolution_clock::now() - s).count();
-              //p_ctx->mig_compaction_read_qlc = p_ctx->mig_compaction_read_qlc + qlc_iter_next_time;
-              //fprintf(stderr, "picked mig key, iter and mig user keys same!\n");
             }
-            //else{
-              //fprintf(stderr, "picked mig key\n");
-            //}
+ 
           } else {
             // migration key is of type kTypeDeletion
             mig_key_idx++;
             if (comp == 0) {
               // since iter key is same, delete that as well
-              //auto s = high_resolution_clock::now();
               input->Next();
-	      total_sst_keys_read++;
-	      total_same_keys++;
-              //qlc_iter_next_time = duration_cast<nanoseconds>(high_resolution_clock::now() - s).count();
-              //p_ctx->mig_compaction_read_qlc = p_ctx->mig_compaction_read_qlc + qlc_iter_next_time;
+              total_sst_keys_read++;
+              total_same_keys++;
             }
             total_mig_keys_deleted++;
             fprintf(stderr, "DBG: dropped mig key\n");
@@ -2519,87 +2571,62 @@ Status DBImpl::DoCompactionWork(PartitionContext* p_ctx, CompactionState* compac
           }
         } else { // qlc iterator key smaller than optane mig key
           if((p_ctx->mig_reason == MIG_REASON_UPSERT) && (p_ctx->pop_cache_ptr->IsClockPopular(decode_size64((unsigned char*)(input->key().data())), popThreshold))){
-	  //if ((p_ctx->pop_cache_ptr->IsClockPopular(decode_size64((unsigned char*)(input->key().data())), popThreshold))){
             Status upsert_s = PutImpl(WriteOptions(), iter_key.user_key(), input->value(), true);
-
-            //upsert_list.push_back(std::make_pair(Slice(input->key()), Slice(input->value())));
-	    //fprintf(stderr, "%X\tUPSERT: partition %d upserted (A) key to optane keysize %d value size %d\n", std::this_thread::get_id(), p_ctx->pid, iter_key.user_key().size(), input->value().size());
             if (upsert_s.ok()) {
               total_upserted_keys++;
             }
-	    // TODO: comment till continue to write upserted keys to qlc
-            //auto s = high_resolution_clock::now();
+	          // TODO: comment till continue to write upserted keys to qlc
             input->Next();
-	    total_sst_keys_read++;
-            //qlc_iter_next_time = duration_cast<nanoseconds>(high_resolution_clock::now() - s).count();
-            //p_ctx->mig_compaction_read_qlc = p_ctx->mig_compaction_read_qlc + qlc_iter_next_time;
-	    continue;
-	    // TODO: comment next two lines to avoid writing upserted keys to qlc
-	    //key = iter_key.Encode();
+	          total_sst_keys_read++;
+	          continue;
+          // TODO: comment next two lines to avoid writing upserted keys to qlc
+          //key = iter_key.Encode();
             //move_iter = true;
 	  }
 	  else {
-            //auto s3 = high_resolution_clock::now();
             // iter user key is smaller than mig key
             key = iter_key.Encode();
-            //fprintf(stderr, "%X\ts3 %llu\n", std::this_thread::get_id(), duration_cast<nanoseconds>(high_resolution_clock::now() - s3).count());
             move_iter = true;
-            //fprintf(stderr, "picked iter key\n");
           }
         }
       } else { // no more optane mig keys, only qlc iterator keys left to migrate
         if((p_ctx->mig_reason == MIG_REASON_UPSERT) && (p_ctx->pop_cache_ptr->IsClockPopular(decode_size64((unsigned char*)(input->key().data())), popThreshold))){
-	//if ((p_ctx->pop_cache_ptr->IsClockPopular(decode_size64((unsigned char*)(input->key().data())), popThreshold))){
             Status upsert_s = PutImpl(WriteOptions(), iter_key.user_key(), input->value(), true);
-            //upsert_list.push_back(std::make_pair(Slice(input->key()), Slice(input->value())));
-	    //fprintf(stderr, "%X\tUPSERT: partition %d upserted (B) key %llu to optane keysize %d value size %d\n", std::this_thread::get_id(), p_ctx->pid, decode_size64((unsigned char*)(input->key().data())), iter_key.user_key().size(), input->value().size());
             if (upsert_s.ok()) {
               total_upserted_keys++;
             }
-	    // TODO: comment till continue to skip writing upserted keys to qlc
-            //auto s = high_resolution_clock::now();
+	        // TODO: comment till continue to skip writing upserted keys to qlc
             input->Next();
-	    total_sst_keys_read++;
-            //qlc_iter_next_time = duration_cast<nanoseconds>(high_resolution_clock::now() - s).count();
-            //p_ctx->mig_compaction_read_qlc = p_ctx->mig_compaction_read_qlc + qlc_iter_next_time;
+	          total_sst_keys_read++;
             continue;
             // TODO: comment next two lines to avoid writing upserted keys to qlc
             //key = iter_key.Encode();
             //move_iter = true;
-        }
-	else {
-          // for upserts, do not create any new SST file
-          if(p_ctx->mig_reason == MIG_REASON_UPSERT){
-            //auto s = high_resolution_clock::now();
-            input->Next();
-            total_sst_keys_read++;
-            //qlc_iter_next_time = duration_cast<nanoseconds>(high_resolution_clock::now() - s).count();
-            //p_ctx->mig_compaction_read_qlc = p_ctx->mig_compaction_read_qlc + qlc_iter_next_time;
-            continue;
+        } else {
+                  // for upserts, do not create any new SST file
+                  if(p_ctx->mig_reason == MIG_REASON_UPSERT){
+                    //auto s = high_resolution_clock::now();
+                    input->Next();
+                    total_sst_keys_read++;
+                    continue;
+                  }
+                  // only iter is valid
+                  key = iter_key.Encode();
+                  move_iter = true;
           }
-          // only iter is valid
-          key = iter_key.Encode();
-          move_iter = true;
-          //fprintf(stderr, "picked iter key (mig key not valid)\n");
-	}
       }
     }
-    else{ // iterator not valid, migrate optane mig key
-      //begin_optane = high_resolution_clock::now();
+    else{ // iterator not valid, migrate optane mig key 
       read_item_key_val(p_ctx->slabContext, &migration_keys[mig_key_idx], &kv);
       // HACK: overwrite key with migration_keys_prefix[i]
       (void) encode_size64(kv.buf, migration_keys_prefix[mig_key_idx]); 
-      //end_optane = high_resolution_clock::now();
-      //fprintf(stderr, "optane_read_time-2 %llu\n", duration_cast<nanoseconds>(end_optane - begin_optane).count());
-      //p_ctx->mig_compaction_read_optane += duration_cast<nanoseconds>(end_optane - begin_optane).count();
+    
       if (kv.key_size != -1){
         //auto s11 = high_resolution_clock::now();
         (void)EncodeFixed64(&kv.buf[kv.key_size], ((0<<8) | kTypeValue));
         key = Slice(kv.buf, kv.key_size+8);
         //fprintf(stderr, "KV BUF KEY %s\n", key.ToString(true).c_str());
         is_mig_key = true;
-        //fprintf(stderr, "picked mig key (iter not valid) key slice is %s key int is %llu\n", key.ToString(true).c_str(),  decode_size64((unsigned char *)kv.buf));
-        //fprintf(stderr, "s11 %llu\n", duration_cast<nanoseconds>(high_resolution_clock::now() - s11).count());
       }
       else {
         mig_key_idx++;
@@ -2609,17 +2636,6 @@ Status DBImpl::DoCompactionWork(PartitionContext* p_ctx, CompactionState* compac
       }
     }
    
-/*  
-    if(p_ctx->migrationId > 15){ 
-      if (is_mig_key){
-        fprintf(stderr, "%X\tOPTANE single_loop_time %llu optane_read_time %llu qlc_iter_next_time %llu\n", std::this_thread::get_id(), duration_cast<nanoseconds>(high_resolution_clock::now() - s0).count(), duration_cast<nanoseconds>(end_optane - begin_optane).count(), qlc_iter_next_time);
-      }
-      else{
-        fprintf(stderr, "%X\tQLC single_loop_time %llu qlc_iter_next_time %llu\n", std::this_thread::get_id(), duration_cast<nanoseconds>(high_resolution_clock::now() - s0).count(), qlc_iter_next_time);
-      }
-    }
-*/
-
 #if 0
     Log(options_.info_log,
         "  Compact: %s, seq %d, type: %d %d, drop: %d, is_base: %d, "
@@ -2635,66 +2651,40 @@ Status DBImpl::DoCompactionWork(PartitionContext* p_ctx, CompactionState* compac
       //auto st1 = high_resolution_clock::now();
       status = OpenCompactionOutputFile(p_ctx, compact);
       if (!status.ok()) {
-        //fprintf(stderr, "%X\tCompaction edit 1 status %s\n", std::this_thread::get_id(), status.ToString().c_str());
         break;
       }
-      //fprintf(stderr, "%X\tPROFILING: OpenCompactionOutputFile %llu\n", std::this_thread::get_id(), duration_cast<nanoseconds>(high_resolution_clock::now() - st1).count());
     }
 
-    //fprintf(stderr, "%X\tBEFORE ADD key %s\n", std::this_thread::get_id(), key.ToString(true).c_str());
     if (compact->builder->NumEntries() == 0) {
       compact->current_output()->smallest.DecodeFrom(key);
-      //fprintf(stderr, "%X\t SMALLEST KEY %s encode %s\n", std::this_thread::get_id(), compact->current_output()->smallest.user_key().ToString(true).c_str(), compact->current_output()->smallest.Encode().ToString(true).c_str());
     }
     compact->current_output()->largest.DecodeFrom(key);
     if (is_mig_key){
-      //fprintf(stderr, "Before adding value size %d\n", kv.val_size);
-      //auto s = high_resolution_clock::now();
+      // 向SSTable添加key
       compact->builder->Add(key, Slice((const char*)&kv.buf[kv.key_size], kv.val_size));
-      //fprintf(stderr, "adding to compactor optane key %llu with value size %lu\n", decode_size64((unsigned char *)kv.buf), kv.val_size);
-      //write_qlc_time += duration_cast<nanoseconds>(high_resolution_clock::now() - s).count();
-      //p_ctx->mig_compaction_write_qlc = p_ctx->mig_compaction_write_qlc + duration_cast<nanoseconds>(high_resolution_clock::now() - s).count();
-      //fprintf(stderr, "add_optane_key %llu\n", duration_cast<nanoseconds>(high_resolution_clock::now() - s).count());
       mig_key_idx++;
       total_mig_keys_read++;
       total_keys_written++;
     } else {
-      //fprintf(stderr, "adding to compactor qlc key %s with value size %lu\n", iter_key.user_key().ToString(true).c_str(), input->value().size());
-      //auto s = high_resolution_clock::now();
       compact->builder->Add(key, input->value());
-      //write_qlc_time += duration_cast<nanoseconds>(high_resolution_clock::now() - s).count();
-      //p_ctx->mig_compaction_write_qlc = p_ctx->mig_compaction_write_qlc + duration_cast<nanoseconds>(high_resolution_clock::now() - s).count();
-      //fprintf(stderr, "add_qlc_key %llu\n", duration_cast<nanoseconds>(high_resolution_clock::now() - s).count());
-      //total_sst_keys_read++;
       total_keys_written++;
     }
 
     // Close output file if it is big enough
-    //if (compact->builder->FileSize() >= compact->compaction->MaxOutputFileSize()) {
-    //  fprintf(stderr, "DBG: %X DoCompactionWork builder size %llu maxfilesize %llu\n", std::this_thread::get_id(), compact->builder->FileSize(), compact->compaction->MaxOutputFileSize());
     if (compact->builder->FileSize() >= max_fsize) {
-      fprintf(stderr, "DBG: %X DoCompactionWork builder size %llu maxfilesize %llu\n", std::this_thread::get_id(), compact->builder->FileSize(), max_fsize);
       auto s = high_resolution_clock::now();
       status = FinishCompactionOutputFile(compact, input);
       auto write_time = duration_cast<nanoseconds>(high_resolution_clock::now() - s).count();
       finish_compaction_time += write_time;
-      //fprintf(stderr, "%X\twrite_qlc_file_time %llu\n", std::this_thread::get_id(), write_time);
-      //write_qlc_time += duration_cast<nanoseconds>(high_resolution_clock::now() - s).count();
       p_ctx->mig_compaction_write_qlc += duration_cast<nanoseconds>(high_resolution_clock::now() - s).count();
       if (!status.ok()) {
-        //fprintf(stderr, "%X\tCompaction edit 2 status %s\n", std::this_thread::get_id(), status.ToString().c_str());
         break;
       }
     }
 
     if (move_iter){
-      //fprintf(stderr, "moving iter Next()\n");
-      //auto s = high_resolution_clock::now();
       input->Next();
       total_sst_keys_read++;
-      //auto qlc_iter_next_time = duration_cast<nanoseconds>(high_resolution_clock::now() - s).count();
-      //p_ctx->mig_compaction_read_qlc = p_ctx->mig_compaction_read_qlc + qlc_iter_next_time;
-      //fprintf(stderr, "%X\tAFTER qlc_iter_next_time %llu\n", std::this_thread::get_id(), qlc_iter_next_time);
     }
   }
 
@@ -2715,15 +2705,10 @@ Status DBImpl::DoCompactionWork(PartitionContext* p_ctx, CompactionState* compac
     }
   }
 
-
-  //fprintf(stderr, "%X\tPROFILING: DoCompactionWork while loop %llu\n", std::this_thread::get_id(), duration_cast<nanoseconds>(high_resolution_clock::now() - st).count());
-
-  //fprintf(stderr, "%X\tCompaction edit 3 status %s\n", std::this_thread::get_id(), status.ToString().c_str());
   if (status.ok() && shutting_down_.load(std::memory_order_acquire)) {
     status = Status::IOError("Deleting DB during compaction");
   }
-  //fprintf(stderr, "%X\tCompaction edit 4 status %s\n", std::this_thread::get_id(), status.ToString().c_str());
-  //auto st2 = high_resolution_clock::now();
+
   if (status.ok() && compact->builder != nullptr) {
     auto s = high_resolution_clock::now();
     status = FinishCompactionOutputFile(compact, input);
@@ -2731,11 +2716,7 @@ Status DBImpl::DoCompactionWork(PartitionContext* p_ctx, CompactionState* compac
     //write_qlc_time += duration_cast<nanoseconds>(high_resolution_clock::now() - s).count();
     p_ctx->mig_compaction_write_qlc = p_ctx->mig_compaction_write_qlc + duration_cast<nanoseconds>(high_resolution_clock::now() - s).count();
   }
-  //fprintf(stderr, "%X\twrite_qlc_time %llu\n", std::this_thread::get_id(), write_qlc_time);
-  //fprintf(stderr, "%X\tfinish_comp_time %llu\n", std::this_thread::get_id(), finish_compaction_time);
-  //fprintf(stderr, "%X\tPROFILING: FinishCompactionOutputFile %llu\n", std::this_thread::get_id(), duration_cast<nanoseconds>(high_resolution_clock::now() - st2).count());
-  //fprintf(stderr, "%X\tCompaction edit 5 status %s\n", std::this_thread::get_id(), status.ToString().c_str());
-  if (status.ok()) {
+  if (status.ok()) {;
     status = input->status();
   }
   //fprintf(stderr, "%X\tCompaction edit 6 status %s\n", std::this_thread::get_id(), status.ToString().c_str());
@@ -2788,6 +2769,171 @@ Status DBImpl::DoCompactionWork(PartitionContext* p_ctx, CompactionState* compac
 
   return status;
 }
+
+
+Status DBImpl::DoCompactionWork(CompactionState* compact) {
+  const uint64_t start_micros = env_->NowMicros();
+  int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
+
+  Log(options_.info_log, "Compacting %d@%d + %d@%d files",
+      compact->compaction->num_input_files(0), compact->compaction->level(),
+      compact->compaction->num_input_files(1),
+      compact->compaction->level() + 1);
+
+  assert(versions_->NumLevelFiles(compact->compaction->level()) > 0);
+  assert(compact->builder == nullptr);
+  assert(compact->outfile == nullptr);
+
+  // 如果还没有做过snapshot，那么这里直接拿到最大的SN
+  if (snapshots_.empty()) {
+    compact->smallest_snapshot = versions_->LastSequence();
+  } else {
+    // 如果做过snapshot，那么这里直接拿到最小的snapshot sn
+    compact->smallest_snapshot = snapshots_.oldest()->sequence_number();
+  }
+
+  // Release mutex while we're actually doing the compaction work
+  mutex_
+      .Unlock();  // <--
+                  // 由于要操作的是磁盘上的数据结构，所以这里并不需要持有db内存控制结构的锁
+
+  Iterator* input = versions_->MakeInputIterator(compact->compaction);
+  input->SeekToFirst();
+  Status status;
+  ParsedInternalKey ikey;
+  std::string current_user_key;
+  bool has_current_user_key = false;
+  SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
+  for (; input->Valid() && !shutting_down_.load(std::memory_order_acquire);) {
+    // Prioritize immutable compaction work
+    if (has_imm_.load(std::memory_order_relaxed)) {
+      const uint64_t imm_start = env_->NowMicros();
+      mutex_.Lock();
+      if (imm_ != nullptr) {
+        CompactMemTable();
+        // Wake up MakeRoomForWrite() if necessary.
+        background_work_finished_signal_.SignalAll();
+      }
+      mutex_.Unlock();
+      imm_micros += (env_->NowMicros() - imm_start);
+    }
+
+    Slice key = input->key();
+    if (compact->compaction->ShouldStopBefore(key) &&
+        compact->builder != nullptr) {
+      status = FinishCompactionOutputFile(compact, input);
+      if (!status.ok()) {
+        break;
+      }
+    }
+
+    // Handle key/value, add to state, etc.
+    bool drop = false;
+    if (!ParseInternalKey(key, &ikey)) {
+      // Do not hide error keys
+      current_user_key.clear();
+      has_current_user_key = false;
+      last_sequence_for_key = kMaxSequenceNumber;
+    } else {
+      if (!has_current_user_key ||
+          // 这里是说拿到了一个新的key
+          user_comparator()->Compare(ikey.user_key, Slice(current_user_key)) !=
+              0) {
+        // First occurrence of this user key
+        current_user_key.assign(ikey.user_key.data(), ikey.user_key.size());
+        has_current_user_key = true;
+        last_sequence_for_key = kMaxSequenceNumber;
+      }
+
+      // 到这里的时候，如果发现key == pre_key
+      // 那么前面Compare() == 0
+      // 并且last_sequence_for_key = pre_key.sn
+      // 如果last_sequence_for_key <= compact->smallest_snapshot
+      // 那么说明当前的key的sn必然也是小于compact->smallest_snapshot
+      // 的。所以dro就成了定局
+      if (last_sequence_for_key <= compact->smallest_snapshot) {
+        // Hidden by an newer entry for same user key
+        drop = true;  // (A)
+      } else if (ikey.type == kTypeDeletion &&
+                 ikey.sequence <= compact->smallest_snapshot &&
+                 compact->compaction->IsBaseLevelForKey(ikey.user_key)) {
+        // For this user key:
+        // (1) there is no data in higher levels
+        // (2) data in lower levels will have larger sequence numbers
+        // (3) data in layers that are being compacted here and have
+        //     smaller sequence numbers will be dropped in the next
+        //     few iterations of this loop (by rule (A) above).
+        // Therefore this deletion marker is obsolete and can be dropped.
+        drop = true;
+      }
+
+      last_sequence_for_key = ikey.sequence;
+    }
+
+    if (!drop) {
+      // Open output file if necessary
+      if (compact->builder == nullptr) {
+        status = OpenCompactionOutputFile(nullptr, compact);
+        if (!status.ok()) {
+          break;
+        }
+      }
+      if (compact->builder->NumEntries() == 0) {
+        compact->current_output()->smallest.DecodeFrom(key);
+      }
+      compact->current_output()->largest.DecodeFrom(key);
+      compact->builder->Add(key, input->value());
+
+      // Close output file if it is big enough
+      if (compact->builder->FileSize() >=
+          compact->compaction->MaxOutputFileSize()) {
+        status = FinishCompactionOutputFile(compact, input);
+        if (!status.ok()) {
+          break;
+        }
+      }
+    }
+
+    input->Next();
+  }
+
+  if (status.ok() && shutting_down_.load(std::memory_order_acquire)) {
+    status = Status::IOError("Deleting DB during compaction");
+  }
+  if (status.ok() && compact->builder != nullptr) {
+    status = FinishCompactionOutputFile(compact, input);
+  }
+  if (status.ok()) {
+    status = input->status();
+  }
+  delete input;
+  input = nullptr;
+
+  CompactionStats stats;
+  stats.micros = env_->NowMicros() - start_micros - imm_micros;
+  for (int which = 0; which < 2; which++) {
+    for (int i = 0; i < compact->compaction->num_input_files(which); i++) {
+      stats.bytes_read += compact->compaction->input(which, i)->file_size;
+    }
+  }
+  for (size_t i = 0; i < compact->outputs.size(); i++) {
+    stats.bytes_written += compact->outputs[i].file_size;
+  }
+
+  mutex_.Lock();
+  stats_[compact->compaction->level() + 1].Add(stats);
+
+  if (status.ok()) {
+    status = InstallCompactionResults(compact);
+  }
+  if (!status.ok()) {
+    RecordBackgroundError(status);
+  }
+  VersionSet::LevelSummaryStorage tmp;
+  Log(options_.info_log, "compacted to: %s", versions_->LevelSummary(&tmp));
+  return status;
+}
+
 
 // PRISMDB
 // This function returns a vector of all SST file Metadata pointers
@@ -3329,80 +3475,6 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   return status;
 }
 
-/*
-Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
-  Writer w(&mutex_);
-  w.batch = updates;
-  w.sync = options.sync;
-  w.done = false;
-
-  MutexLock l(&mutex_);
-  writers_.push_back(&w);
-  while (!w.done && &w != writers_.front()) {
-    w.cv.Wait();
-  }
-  if (w.done) {
-    return w.status;
-  }
-
-  // May temporarily unlock and wait.
-  Status status = MakeRoomForWrite(updates == nullptr);
-  uint64_t last_sequence = versions_->LastSequence();
-  Writer* last_writer = &w;
-  if (status.ok() && updates != nullptr) {  // nullptr batch is for compactions
-    WriteBatch* write_batch = BuildBatchGroup(&last_writer);
-    WriteBatchInternal::SetSequence(write_batch, last_sequence + 1);
-    last_sequence += WriteBatchInternal::Count(write_batch);
-
-    // Add to log and apply to memtable.  We can release the lock
-    // during this phase since &w is currently responsible for logging
-    // and protects against concurrent loggers and concurrent writes
-    // into mem_.
-    {
-      mutex_.Unlock();
-      status = log_->AddRecord(WriteBatchInternal::Contents(write_batch));
-      bool sync_error = false;
-      if (status.ok() && options.sync) {
-        status = logfile_->Sync();
-        if (!status.ok()) {
-          sync_error = true;
-        }
-      }
-      if (status.ok()) {
-        status = WriteBatchInternal::InsertInto(write_batch, mem_);
-      }
-      mutex_.Lock();
-      if (sync_error) {
-        // The state of the log file is indeterminate: the log record we
-        // just added may or may not show up when the DB is re-opened.
-        // So we force the DB into a mode where all future writes fail.
-        RecordBackgroundError(status);
-      }
-    }
-    if (write_batch == tmp_batch_) tmp_batch_->Clear();
-
-    versions_->SetLastSequence(last_sequence);
-  }
-
-  while (true) {
-    Writer* ready = writers_.front();
-    writers_.pop_front();
-    if (ready != &w) {
-      ready->status = status;
-      ready->done = true;
-      ready->cv.Signal();
-    }
-    if (ready == last_writer) break;
-  }
-
-  // Notify new head of write queue
-  if (!writers_.empty()) {
-    writers_.front()->cv.Signal();
-  }
-
-  return status;
-}*/
-
 // REQUIRES: Writer list must be non-empty
 // REQUIRES: First writer must have a non-null batch
 WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
@@ -3681,15 +3753,14 @@ Status DBImpl::PutImpl(const WriteOptions& opt, const Slice& key, const Slice& v
   memcpy(item_value, value.data(), val_sz);
 
   // check if optane allocation has exceeded, then wait for migration to finish
-  //while (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold/(float)numPartitions));
-  //if (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold/(float)numPartitions)){
-  //  fprintf(stderr, "ERROR: partition %d goes beyond max capacity!\n", p);
-  //}
-  //while (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold/(float)numPartitions)){
-    //while (partitions[p].background_compaction_scheduled){
-    //fprintf(stderr, "%X\tPUT_THROTTLE partition size %llu back_comp_sched %d\n", std::this_thread::get_id(), partitions[p].size_in_bytes, partitions[p].background_compaction_scheduled);
-    //partitions[p].background_work_finished_signal.Wait();
-  //}
+  if (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold/(float)numPartitions)){
+   fprintf(stderr, "ERROR: partition %d goes beyond max capacity!\n", p);
+  }
+  while (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold/(float)numPartitions)){
+    std::this_thread::sleep_for(milliseconds(1));
+    // partitions[p].background_work_finished_signal.Wait();
+  }
+
 
   // Step 3: Acquire partition lock and check if key already exists in the index
   // Then insert/update Optane accordingly
@@ -4517,7 +4588,7 @@ void ClockCache::GenClockProbDist(float pop_threshold){
   uint32_t num_clk2 = clock_cache_value_hist_[2];
   uint32_t num_clk3 = clock_cache_value_hist_[3];
   fprintf(stderr, "CLOCK: clock hist values %lu %lu %lu %lu\n", num_clk0, num_clk1, num_clk2, num_clk3);
-  uint32_t total = num_clk0 + num_clk1 + num_clk2 + num_clk3;
+  uint32_t total = num_clk0 + num_clk1 + num_clk2 + num_clk3 + 1;
   for (int i=0; i<=CLOCK_BITS_MAX_VALUE; i++){
     clk_prob_dist[i] = -1;
   }
