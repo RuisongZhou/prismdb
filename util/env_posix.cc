@@ -843,6 +843,7 @@ PosixEnv::PosixEnv() : mmap_limiter_(MaxMmaps()), fd_limiter_(MaxOpenFiles()) {
           background_work_cv_[i].SetMutex(&background_work_mutex_[i]);
           started_background_thread_[i] = false;
         }
+        started_bgthread_ = false;
         //mmap_limiter_ = MaxMmaps();
         //fd_limiter_ = MaxOpenFiles();
       }

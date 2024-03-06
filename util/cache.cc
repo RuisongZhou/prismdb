@@ -336,7 +336,7 @@ void LRUCache::Prune() {
   }
 }
 
-static const int kNumShardBits = 0; // P2 HACK: original value was 4
+static const int kNumShardBits = 4; // P2 HACK: original value was 4
 static const int kNumShards = 1 << kNumShardBits;
 
 class ShardedLRUCache : public Cache {
@@ -351,54 +351,10 @@ class ShardedLRUCache : public Cache {
   }
 
   //std::map<std::thread::id, uint32_t> tid_shard_map;
-  std::thread::id tids[8];
-  std::atomic<int> num_tids;
-  /*inline uint32_t HashSlice(const Slice& s) {
-    // P2 HACK: convert key slice to uint64_t
-    //uint8_t* buffer = (uint8_t *)s.data();
-    //uint64_t key = (uint64_t)(buffer[7]) |
-    //     (uint64_t)((buffer[6]) << 8) |
-    //     (uint64_t)((buffer[5]) << 16) |
-    //     (uint64_t)((buffer[4]) << 24) |
-    //     (uint64_t)((buffer[3]) << 32) |
-    //     (uint64_t)((buffer[2]) << 40) |
-    //     (uint64_t)((buffer[1]) << 48) |
-    //     (uint64_t)((buffer[0]) << 56);
-
-    //uint32_t index = (key/(100000000/8)); // 100M keys, 8 partitions
-    //fprintf(stderr, "LRU key %llu, index %lu\n", key, index);
-    
-    std::thread::id tid = std::this_thread::get_id();
-    bool found = false;
-    int index = num_tids.load();
-    for (uint32_t i=0; i<index; i++){
-      if (tids[i] == tid){
-        found = true;
-	//fprintf(stderr, "LRU tid %X index %llu index %d\n", tid, i, index);
-	return i;
-      }
-    }
-    if (!found){
-      int max = 8;
-      int val = 0;
-      id_mutex_.Lock();
-      bool reset = num_tids.compare_exchange_strong(max, val);
-      //if (reset){
-      //  fprintf(stderr, "LRU cleared all 8 tids, num_tids %d\n", num_tids.load());
-      //}
-      uint32_t prev = num_tids.fetch_add(1, std::memory_order_relaxed);
-      tids[prev] = tid;
-      //fprintf(stderr, "LRU tid %X index (prev) %llu num_tids %d\n", tid, prev, num_tids.load());
-      id_mutex_.Unlock();
-      return prev;
-    }
-
-    //return Hash(s.data(), s.size(), 0);
-  }*/
+  // std::thread::id tids[8];
+  // std::atomic<int> num_tids;
 
   static uint32_t Shard(uint32_t hash) {
-    // P2 HACK:
-    //return hash;
     return hash >> (32 - kNumShardBits); 
   }
 
@@ -408,7 +364,7 @@ class ShardedLRUCache : public Cache {
     for (int s = 0; s < kNumShards; s++) {
       shard_[s].SetCapacity(per_shard);
     }
-    num_tids=0;
+    // num_tids=0;
   }
   ~ShardedLRUCache() override {}
   Handle* Insert(const Slice& key, void* value, size_t charge,

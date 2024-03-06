@@ -1173,12 +1173,12 @@ void DBImpl::MaybeScheduleCompaction(uint8_t pid, MigrationReason reason) {
     env_->SchedulePartition(&DBImpl::BGWork, this, pid);
   }
 
-  //MaybeScheduleCompaction();
+  MaybeScheduleCompaction();
   
 }
 
 void DBImpl::MaybeScheduleCompaction(){
-  MutexLock l(&mutex_);
+  mutex_.AssertHeld();
   if (background_compaction_scheduled_) {
   } else if (shutting_down_.load(std::memory_order_acquire)) {
   } else if (!bg_error_.ok()) {
@@ -1279,7 +1279,7 @@ void DBImpl::BackgroundCompaction() {
     status = versions_->LogAndApply(c->edit(), &mutex_);
     if (!status.ok()) {
       RecordBackgroundError(status);
-    }
+    } 
 
     // 这个不用管，LevelSummaryStorage只是用来生成可读性较强的信息。
     VersionSet::LevelSummaryStorage tmp;
