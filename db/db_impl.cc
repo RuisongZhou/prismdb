@@ -1288,6 +1288,8 @@ void DBImpl::BackgroundCompaction() {
         if (p_ctx->files.find(f->number) != p_ctx->files.end()){
               p_ctx->files.erase(f->number);
               p_ctx->file_entries.erase(f->number);
+              Log(options_.info_log, "[migration] Delete %d#%lld\n in partition %llu", 
+              c->level(), static_cast<unsigned long long>(f->number), i);
               break;
         }
       }
@@ -1393,6 +1395,8 @@ void DBImpl::DeleteObsoleteFiles(int level) {
               if (p_ctx->files.find(number) != p_ctx->files.end()){
                     p_ctx->files.erase(number);
                     p_ctx->file_entries.erase(number);
+                    Log(options_.info_log, "[migration] Delete %d#%llu\n in partition %llu", 
+                        level, number, i);
                     break;  
                 }
             }
