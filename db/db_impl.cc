@@ -1203,7 +1203,7 @@ void DBImpl::BGWork(void* db) {
 
 void DBImpl::BackgroundCall(PartitionContext* p_ctx) {
   using namespace std::chrono;
-  MutexLock l(&mutex_); //ASHL
+  // MutexLock l(&mutex_); //ASHL
   //mutex_.Unlock(); // unlock it right away, we will selectively lock it for lsm related code
 
   assert(p_ctx->background_compaction_scheduled); // TODO:
