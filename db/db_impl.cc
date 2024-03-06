@@ -3753,13 +3753,13 @@ Status DBImpl::PutImpl(const WriteOptions& opt, const Slice& key, const Slice& v
   memcpy(item_value, value.data(), val_sz);
 
   // check if optane allocation has exceeded, then wait for migration to finish
-  if (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold/(float)numPartitions)){
-   fprintf(stderr, "ERROR: partition %d goes beyond max capacity!\n", p);
-  }
-  while (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold/(float)numPartitions)){
-    std::this_thread::sleep_for(milliseconds(1));
-    // partitions[p].background_work_finished_signal.Wait();
-  }
+  // if (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold/(float)numPartitions)){
+  //   fprintf(stderr, "ERROR: partition %d goes beyond max capacity!\n", p);
+  //   partitions[p].background_work_finished_signal.Wait();
+  // }
+  // while (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold/(float)numPartitions)){
+  //   std::this_thread::sleep_for(milliseconds(1));
+  // }
 
 
   // Step 3: Acquire partition lock and check if key already exists in the index
@@ -3915,169 +3915,19 @@ Status DBImpl::PutImpl(const WriteOptions& opt, const Slice& key, const Slice& v
   }
 
   // trigger the rate limiter when current size exceeds the pre-set rate-limit threshold
-  if (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold*partitions[p].ratelimit_threshold/(float)numPartitions)) {
+  auto rate_limit_size = (uint64_t)(float)(maxDbSizeBytes*optaneThreshold*partitions[p].ratelimit_threshold/(float)numPartitions);
+  while (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold*partitions[p].ratelimit_threshold/(float)numPartitions)) {
+
     if (++sleep_counter%5 == 0){
-      env_->SleepForMicroseconds(20); // was 20 for YCSB, setting 100 for twitter
-      //fprintf(stderr, "%X\tpartition %llu rate limit", std::this_thread::get_id(), p);
+      env_->SleepForMicroseconds(10000); // was 20 for YCSB, setting 100 for twitter , now change to 10ms
+      fprintf(stderr, "%X\tpartition %llu rate limit, size_in_bytes: %llu, rate_limit_size: %llu", std::this_thread::get_id(), p, partitions[p].size_in_bytes, rate_limit_size);
     }
   }
 
   return s.OK();
 }
 
-//PRISMDB
-// JIANAN: changes PutImpl for Optane-only.
-/*Status DBImpl::PutImpl(const WriteOptions& opt, const Slice& key, const Slice& value){
-  Status s;
-  using namespace std::chrono;
-  auto begin = high_resolution_clock::now();
-  // Step 1: find the partition for key
-  //uint64_t k = std::stoull(key.ToString(true), nullptr, 16); // TODO: assumes 8byte key
-  //fprintf(stderr, "PutImpl key %ull\n", k);
-  uint64_t k = decode_size64((unsigned char*)key.data());
-  //uint64_t hash = *(uint64_t*)((unsigned char*)(key.data()));
-  //fprintf(stderr, "PutImpl key %llu\n", k);
-  int p = DBImpl::getPartition(k);
-  //fprintf(stderr, "PutImpl key %llu, partition %d\n", k, p);
 
-  // Step 2: convert key and value to a record format on Optane:
-  // metadata = timestamp || key size || value size
-  // key
-  // value
-  auto begin_array = high_resolution_clock::now();
-  size_t key_sz = key.size();
-  size_t val_sz = value.size();
-  size_t item_size = key_sz + val_sz + sizeof(struct item_metadata);
-  //fprintf(stderr, "key size %zu, value size %zu, meta size %zu, item size %zu \n", key_sz, val_sz, sizeof(struct item_metadata), item_size);
-
-  char *item = new char[item_size];
-  if (item == NULL) {
-    fprintf(stderr, "create_item: malloc failed\n");
-  }
-
-  item_metadata *meta = (item_metadata *)item;
-  meta->rdt = 0xC0FEC0FEC0FEC0FE;
-  meta->key_size = key_sz;
-  (void) EncodeVarint64(&item[sizeof(size_t)], key_sz);
-  meta->value_size = val_sz;
-  (void) EncodeVarint64(&item[2*sizeof(size_t)], val_sz);
-
-  char *item_key = &item[sizeof(*meta)];
-  char *item_value = &item[sizeof(*meta) + key_sz];
-  memcpy(item_key, key.data(), key_sz);
-  memcpy(item_value, value.data(), val_sz);
-  auto end_array = high_resolution_clock::now();
-  put_copy_array = put_copy_array + duration_cast<nanoseconds>(end_array - begin_array).count();
-  //for (int i=0; i<key_sz; i++){
-    //item_key[i] = key.data()[i];
-  //  fprintf(stderr, "CHAR %c\n", item_key[i]);
-  //}
-  //fprintf(stderr, "KEY COMP item_key %s key %s\n", Slice(item_key, 8).ToString(true).c_str(), key.ToString(true).c_str());
-  // test
-  auto end_before_btree_find = high_resolution_clock::now();
-  put_before_btree_find = put_before_btree_find + duration_cast<nanoseconds>(end_before_btree_find - begin).count();
-  auto begin_lock = high_resolution_clock::now();
-
-  // Critical Section
-  partitions[p].mtx.lock();
-
-  auto end_lock = high_resolution_clock::now();
-  put_acquire_lock = put_acquire_lock + duration_cast<nanoseconds>(end_lock - begin_lock).count();
-
-  op_result *res = new op_result;
-
-  // Step 3: check if key already exists
-  index_entry old_e;
-  auto begin_index_1 = high_resolution_clock::now();
-  int in_optane = btree_find(partitions[p].index, (unsigned char*) key.data(), key.size(), &old_e);
-  auto end_index_1 = high_resolution_clock::now();
-  put_index_time = put_index_time + duration_cast<nanoseconds>(end_index_1 - begin_index_1).count();
-
-  // test
-  auto end_before_optane = high_resolution_clock::now();
-  put_before_optane = put_before_optane + duration_cast<nanoseconds>(end_before_optane - end_before_btree_find).count();
-
-  if (in_optane) {
-    // We need explictly remove key from the index first
-    // This is because btree will not update the key with new value if key already exists
-    // see indexes/btree.h line 1759
-    auto begin_index = high_resolution_clock::now();
-    btree_delete(partitions[p].index, (unsigned char*) key.data(), key.size(), false);
-    auto end_index = high_resolution_clock::now();
-    update_item_sync(&old_e, partitions[p].slabContext, item, item_size, res, load_phase_);
-    auto end_optane = high_resolution_clock::now();
-    put_index_time = put_index_time + duration_cast<nanoseconds>(end_index - begin_index).count();
-    put_optane_time = put_optane_time + duration_cast<nanoseconds>(end_optane - end_index).count();
-  } else {
-    auto begin_optane = high_resolution_clock::now();
-    add_item_sync(partitions[p].slabContext, item, item_size, res, load_phase_);
-    auto end_optane = high_resolution_clock::now();
-    put_optane_time = put_optane_time + duration_cast<nanoseconds>(end_optane - begin_optane).count();
-    int slab_id = get_slab_id_new(partitions[p].slabContext, item_size);
-    partitions[p].size_in_bytes += partitions[p].slabContext->slabs[slab_id]->item_size;
-    // TODO: handle the update case when item size changes
-  }
-
-  if (res->success == -1) {
-    fprintf(stderr, "%s\n", "put() failed");
-    delete res;
-    delete item;
-    partitions[p].mtx.unlock();
-    return s.IOError("PutImpl() failed");
-  }
-
-  // Step 4: insert (key, item_size || slab_id || slab_offset)
-  int slab_id = res->slab_id;
-  index_entry e = {
-    partitions[p].slabContext->slabs[slab_id],// pointer to the slab
-    (size_t)res->slab_idx, // object offset within this slab
-    item_size, // JIANAN: TODO, should this be the item size on slab, say 256?
-    0, // under_migration is default to false/0
-  };
-
-
-  // JIANAN: the second parameter should be the key prefix, and the third parameter being the size of the prefix
-  // Here we just use the entire key char array and its length
-  //btree_insert(partitions[p].index, (unsigned char*) key_char, strlen(key_char), &e);
-  btree_insert(partitions[p].index, (unsigned char*)key.data(), key.size(), &e);
-
-  delete res;
-  delete item;
-
-  partitions[p].mtx.unlock();
-  if (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold/(float)numPartitions)) {
-    fprintf(stderr, "Schedule compaction trigger partition %d, partition size %lu numPartitions %lu maxDbSize %lu optaneThreshold %f\n", p, partitions[p].size_in_bytes, numPartitions, maxDbSizeBytes, optaneThreshold);
-    MaybeScheduleCompaction(&partitions[p]); // TODO: add partition_ctx
-  }
-  return s.OK();
-}*/
-
-//PRISMDB
-/*Status DBImpl::PutImpl(const WriteOptions& opt, const Slice& key, const Slice& value){
-  //fprintf(stderr, "Put called\n");
-  Status s;
-  uint64_t sequence_num = versions_->LastSequence()+1;
-  InternalKey ikey = InternalKey(key, sequence_num, kTypeValue);
-  optane_mu.lock();
-  kv[kv_idx].sn = sequence_num;
-  kv[kv_idx].vtype = kTypeValue;
-  //sprintf(kv[kv_idx].key, "%.8s", key.ToString().c_str());
-  kv[kv_idx].key = key.ToString();
-  sprintf(kv[kv_idx].value, "%.100s", value.ToString().c_str());
-  //fprintf(stderr, "Put key %s value (sn %lu type %d)\n", key.ToString(true).c_str(), kv[kv_idx].sn, kv[kv_idx].vtype);
-  optane_map[key.ToString(true)] = &kv[kv_idx];
-  //fprintf(stderr, "VALUE %s\n", optane_map[key.ToString(true)].ToString(true).c_str());
-  optane_size += key.size() + value.size();
-  kv_idx = (kv_idx+1)%10000000;
-
-  fprintf(stderr, "Put called key %s seq %lu type %d optane_num_keys %d\n", key.ToString(true).c_str(), sequence_num, kTypeValue, optane_map.size());
-  versions_->SetLastSequence(sequence_num);
-  if (optane_map.size() > 200000) {
-    MaybeScheduleCompaction(nullptr); // TODO: add partition_ctx
-  }
-  optane_mu.unlock();
-  return s.OK();
-}*/
 
 // Default implementations of convenience methods that subclasses of DB
 // can call if they wish
