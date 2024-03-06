@@ -1280,6 +1280,16 @@ void DBImpl::BackgroundCompaction() {
     if (!status.ok()) {
       RecordBackgroundError(status);
     } 
+    if(c->level() == 1) {
+      //level1 需要额外从p_ctx中删除
+      for (uint64_t i = 0; i < numPartitions; i++) {
+        PartitionContext* p_ctx = &partitions[i];
+        if (p_ctx->files.find(f->number) != p_ctx->files.end()){
+              p_ctx->files.erase(f->number);
+              p_ctx->file_entries.erase(f->number);     
+        }
+      }
+    }
 
     // 这个不用管，LevelSummaryStorage只是用来生成可读性较强的信息。
     VersionSet::LevelSummaryStorage tmp;
@@ -1296,7 +1306,8 @@ void DBImpl::BackgroundCompaction() {
     }
     CleanupCompaction(compact);
     c->ReleaseInputs();
-    DeleteObsoleteFiles();
+    DeleteObsoleteFiles(c->level());
+   
   }
   // 如果c为空，这里会不会炸掉?
   delete c;
@@ -1334,7 +1345,7 @@ void DBImpl::CleanupCompaction(CompactionState* compact) {
 // live = pending_outputs_ + files_in(version_set_);
 // all_files_in_dir = GetDBFiles()
 // to_delete_files = all_files_in_dir - live
-void DBImpl::DeleteObsoleteFiles() {
+void DBImpl::DeleteObsoleteFiles(int level) {
   mutex_.AssertHeld();
 
   if (!bg_error_.ok()) {
@@ -1373,6 +1384,16 @@ void DBImpl::DeleteObsoleteFiles() {
         case kTableFile:
           // 如果是sst文件，那么如果不在live里面，就要干掉
           keep = (live.find(number) != live.end());
+          if(level == 1){
+            //level1 需要额外从p_ctx中删除
+            for (uint64_t i = 0; i < numPartitions; i++) {
+              PartitionContext* p_ctx = &partitions[i];
+              if (p_ctx->files.find(number) != p_ctx->files.end()){
+                    p_ctx->files.erase(number);
+                    p_ctx->file_entries.erase(number);     
+                }
+            }
+          }
           break;
         case kTempFile:
           // Any temp files that are currently being written to must

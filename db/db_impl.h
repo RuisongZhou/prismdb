@@ -501,7 +501,7 @@ class DBImpl : public DB {
 
   // Delete any unneeded files and stale in-memory entries.
   void RemoveObsoleteFiles(PartitionContext* p_ctx = nullptr) EXCLUSIVE_LOCKS_REQUIRED(mutex_);
-  void DeleteObsoleteFiles() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  void DeleteObsoleteFiles(int level = 1) EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   // Compact the in-memory write buffer to disk.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful.
   // Errors are recorded in bg_error_.
