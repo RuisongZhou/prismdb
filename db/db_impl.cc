@@ -1172,19 +1172,7 @@ void DBImpl::MaybeScheduleCompaction(uint8_t pid, MigrationReason reason) {
     env_->SchedulePartition(&DBImpl::BGWork, this, pid);
   }
 
-  mutex_.AssertHeld();
-  if (background_compaction_scheduled_) {
-  } else if (shutting_down_.load(std::memory_order_acquire)) {
-  } else if (!bg_error_.ok()) {
-  } else if (imm_ == nullptr && manual_compaction_ == nullptr &&
-             !versions_->NeedsCompaction()) {
-    // No work to be done
-  } else {
-    // 后台的compaction开始调度
-    background_compaction_scheduled_ = true;
-    env_->Schedule(&DBImpl::BGWork, this);
-  }
-
+  MaybeScheduleCompaction();
 }
 
 void DBImpl::MaybeScheduleCompaction(){
@@ -3922,6 +3910,7 @@ Status DBImpl::PutImpl(const WriteOptions& opt, const Slice& key, const Slice& v
       env_->SleepForMicroseconds(10000); // was 20 for YCSB, setting 100 for twitter , now change to 10ms
       fprintf(stderr, "%X\tpartition %llu rate limit, size_in_bytes: %llu, rate_limit_size: %llu\n", 
         std::this_thread::get_id(), p, partitions[p].size_in_bytes, (uint64_t)rate_limit_size);
+       MaybeScheduleCompaction(p); 
     }
   }
 

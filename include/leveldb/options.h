@@ -148,7 +148,7 @@ struct LEVELDB_EXPORT Options {
   // JIANAN: whether print out stats for each migration
   // including write amplifcation in terms of keys and key selection schemes
   // Default: false
-  bool migration_logging = false;
+  bool migration_logging = true;
 
   // JIANAN: whether print out latency for each individual read
   // and if it is a block cache hit
