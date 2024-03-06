@@ -1385,7 +1385,7 @@ void DBImpl::DeleteObsoleteFiles(int level) {
         case kTableFile:
           // 如果是sst文件，那么如果不在live里面，就要干掉
           keep = (live.find(number) != live.end());
-          if(level == 1){
+          if(level == 1 && !keep){
             //level1 需要额外从p_ctx中删除
             for (uint64_t i = 0; i < numPartitions; i++) {
               PartitionContext* p_ctx = &partitions[i];
