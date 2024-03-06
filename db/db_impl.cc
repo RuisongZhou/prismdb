@@ -600,7 +600,7 @@ void DBImpl::RemoveObsoleteFiles(PartitionContext* p_ctx) {
         if (type == kTableFile) {
           table_cache_->Evict(number);
         }
-        Log(options_.info_log, "Delete type=%d #%lld\n", static_cast<int>(type),
+        Log(options_.info_log, "[migration] Delete type=%d #%lld\n", static_cast<int>(type),
             static_cast<unsigned long long>(number));
       }
     }
@@ -1171,6 +1171,7 @@ void DBImpl::MaybeScheduleCompaction(uint8_t pid, MigrationReason reason) {
     }
     p_ctx->mig_reason = reason;
     env_->SchedulePartition(&DBImpl::BGWork, this, pid);
+    p_ctx->background_work_finished_signal.Wait();
   }
 
   MaybeScheduleCompaction();
@@ -1413,8 +1414,8 @@ void DBImpl::DeleteObsoleteFiles(int level) {
           table_cache_->Evict(number);
         }
         // 真正删除文件
-        Log(options_.info_log, "Delete type=%d #%lld\n", static_cast<int>(type),
-            static_cast<unsigned long long>(number));
+        Log(options_.info_log, "[Compaction]Delete type=%d %d#%lld\n", static_cast<int>(type),
+            level, static_cast<unsigned long long>(number));
         env_->DeleteFile(dbname_ + "/" + filenames[i]);
       }
     }
