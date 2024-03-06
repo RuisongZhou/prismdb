@@ -141,7 +141,7 @@ void sort_items_in_free_list(struct slab_new *s) {
       j++;
    }
    assert(j == free_list->num_free_blocks && "end of pass 1, j != num_free_blocks");
-   //fprintf(stderr, "end of pass 1: num_free_blocks is %d and j is %d, j should be 1 greater\n", free_list->num_free_blocks, j);
+   fprintf(stderr, "end of pass 1: num_free_blocks is %d and j is %d, j should be 1 greater\n", free_list->num_free_blocks, j);
 
    // Pass 2: sort all non-empty blocks in descending order 
    qsort(to_sort, free_list->num_free_blocks, sizeof(struct freeblock_entry **), cmpfunc);

@@ -9,7 +9,7 @@ qlc_prism_path=${3%/}
 
 cd $repo_path/build
 #cmake --build . --target clean
-cmake -DCMAKE_BUILD_TYPE=Release .. && cmake --build .
+cmake -DCMAKE_BUILD_TYPE=Release .. && cmake --build . -j32
 
 #echo $optane_prism_path
 #echo $qlc_prism_path
