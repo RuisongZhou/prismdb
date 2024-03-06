@@ -1153,7 +1153,7 @@ void DBImpl::MaybeScheduleCompaction(uint8_t pid, MigrationReason reason) {
   // p_ctx->mutex.AssertHeld();
   if (p_ctx->background_compaction_scheduled) {
     // Already scheduled
-    //fprintf(stderr, "PRISMDB: migration already scheduled\n");
+    fprintf(stderr, "PRISMDB: migration already scheduled\n");
   } else if (shutting_down_.load(std::memory_order_acquire)) {
     // DB is being deleted; no more background compactions
   } else if (!bg_error_.ok()) {
@@ -1161,6 +1161,7 @@ void DBImpl::MaybeScheduleCompaction(uint8_t pid, MigrationReason reason) {
   // } else if (imm_ == nullptr && manual_compaction_ == nullptr &&
   //            !versions_->NeedsCompaction()) {
   //   // No work to be done
+  fprintf(stderr, "PRISMDB: partition %d bg_error, cannot migration\n", pid);
   } else {
     p_ctx->background_compaction_scheduled = true;
     //fprintf(stderr, "PRISMDB: scheduled a new migration\n");
@@ -1171,7 +1172,7 @@ void DBImpl::MaybeScheduleCompaction(uint8_t pid, MigrationReason reason) {
     p_ctx->mig_reason = reason;
     env_->SchedulePartition(&DBImpl::BGWork, this, pid);
   }
-
+  MutexLock l(&mutex_);
   MaybeScheduleCompaction();
 }
 
@@ -1201,7 +1202,7 @@ void DBImpl::BGWork(void* db) {
 
 void DBImpl::BackgroundCall(PartitionContext* p_ctx) {
   using namespace std::chrono;
-  //MutexLock l(&mutex_); //ASHL
+  MutexLock l(&mutex_); //ASHL
   //mutex_.Unlock(); // unlock it right away, we will selectively lock it for lsm related code
 
   assert(p_ctx->background_compaction_scheduled); // TODO:
@@ -2057,7 +2058,7 @@ void DBImpl::BackgroundCompaction(PartitionContext* p_ctx) {
   assert(migration_keys.size() != 0);
 
   //mutex_.Lock(); //ASHL
-  //mutex_.AssertHeld();
+  // mutex_.AssertHeld();    //拿锁
 
   // Step 2: Trigger background compaction to QLC
   int total_mig_keys = migration_keys.size();
@@ -3909,7 +3910,7 @@ Status DBImpl::PutImpl(const WriteOptions& opt, const Slice& key, const Slice& v
     if (++sleep_counter%5 == 0){
       env_->SleepForMicroseconds(10000); // was 20 for YCSB, setting 100 for twitter , now change to 10ms
       fprintf(stderr, "%X\tpartition %llu rate limit, size_in_bytes: %llu, rate_limit_size: %llu\n", 
-        std::this_thread::get_id(), p, partitions[p].size_in_bytes, (uint64_t)rate_limit_size);
+      std::this_thread::get_id(), p, partitions[p].size_in_bytes, (uint64_t)rate_limit_size);
        MaybeScheduleCompaction(p); 
     }
   }

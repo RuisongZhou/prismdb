@@ -838,11 +838,6 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
   }
   Finalize(v);
 
-  /*const std::vector<FileMetaData*>& files = v->files_[1];
-  for (size_t i = 0; i < files.size(); i++) {
-    fprintf(stderr, "%X\tVersionSet files %llu\n", std::this_thread::get_id(), files[i]->number);
-  }*/
-
   // Initialize new descriptor log file if necessary by creating
   // a temporary file that contains a snapshot of the current version.
   std::string new_manifest_file;
@@ -862,7 +857,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
 
   // Unlock during expensive MANIFEST log write
   {
-    //mu->Unlock();
+    mu->Unlock();
 
     // Write new record to MANIFEST log
     if (s.ok()) {
@@ -884,7 +879,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
       s = SetCurrentFile(env_, dbname_, manifest_file_number_);
     }
 
-    //mu->Lock();
+    mu->Lock();
   }
 
   // Install the new version
