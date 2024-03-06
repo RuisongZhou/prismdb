@@ -3915,12 +3915,13 @@ Status DBImpl::PutImpl(const WriteOptions& opt, const Slice& key, const Slice& v
   }
 
   // trigger the rate limiter when current size exceeds the pre-set rate-limit threshold
-  auto rate_limit_size = (uint64_t)(float)(maxDbSizeBytes*optaneThreshold*partitions[p].ratelimit_threshold/(float)numPartitions);
+  auto rate_limit_size = ((float)maxDbSizeBytes*optaneThreshold*partitions[p].ratelimit_threshold/(float)numPartitions);
   while (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold*partitions[p].ratelimit_threshold/(float)numPartitions)) {
 
     if (++sleep_counter%5 == 0){
       env_->SleepForMicroseconds(10000); // was 20 for YCSB, setting 100 for twitter , now change to 10ms
-      fprintf(stderr, "%X\tpartition %llu rate limit, size_in_bytes: %llu, rate_limit_size: %llu", std::this_thread::get_id(), p, partitions[p].size_in_bytes, rate_limit_size);
+      fprintf(stderr, "%X\tpartition %llu rate limit, size_in_bytes: %llu, rate_limit_size: %llu\n", 
+        std::this_thread::get_id(), p, partitions[p].size_in_bytes, (uint64_t)rate_limit_size);
     }
   }
 
