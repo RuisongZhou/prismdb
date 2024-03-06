@@ -1172,6 +1172,8 @@ void DBImpl::MaybeScheduleCompaction(uint8_t pid, MigrationReason reason) {
     p_ctx->mig_reason = reason;
     env_->SchedulePartition(&DBImpl::BGWork, this, pid);
   }
+
+  //MaybeScheduleCompaction();
   
 }
 
