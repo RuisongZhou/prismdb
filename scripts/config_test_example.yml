@@ -14,7 +14,7 @@ pop_cache_size: [10000000] #clock cache size in terms of keys
 pop_cache_thresh: [0.7] #clock cache optane pinning threshold
 blockcache_size: [0] #blockcache size for caching objects stored on flash (not used)
 num_partitions: [8] #number of partitions
-db_size: [20000000000] #database size in terms of keys
+db_size: [100000000] #database size in terms of keys
 key_size: [8] #key size in bytes
 value_size: [256] #value size in bytes
 

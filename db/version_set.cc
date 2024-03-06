@@ -1153,10 +1153,15 @@ int VersionSet::NumLevelFiles(int level) const {
 // PRISMDB
 const char* VersionSet::LevelSummary(LevelSummaryStorage* scratch) const {
   // Update code if kNumLevels changes
-  static_assert(config::kNumLevels == 2, "");
-  std::snprintf(
-      scratch->buffer, sizeof(scratch->buffer), "files[ %d ]",
-      int(current_->files_[1].size()));
+  // static_assert(config::kNumLevels == 7, "");
+  // std::snprintf(
+  //     scratch->buffer, sizeof(scratch->buffer), "files[ %d ]",
+  //     int(current_->files_[1].size()));
+  std::snprintf(scratch->buffer, sizeof(scratch->buffer),
+           "files[ %d %d %d %d %d %d %d ]", int(current_->files_[0].size()),
+           int(current_->files_[1].size()), int(current_->files_[2].size()),
+           int(current_->files_[3].size()), int(current_->files_[4].size()),
+           int(current_->files_[5].size()), int(current_->files_[6].size()));
   return scratch->buffer;
 }
 

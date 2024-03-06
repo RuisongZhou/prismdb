@@ -4622,45 +4622,9 @@ void ClockCache::GenClockProbDist(float pop_threshold){
           }
           else if (clk1_percent > 0){
             clk_prob_dist[1] = 1.0;
-            //threshold_percent -= clk1_percent;
-            //if (clk0_percent >= threshold_percent){
-            //  clk_prob_dist[0] = (float_t)threshold_percent/(float_t)clk0_percent;
-            //}
-            //else{
-            //  clk_prob_dist[0] = 1.0;
-            //  threshold_percent -= clk0_percent;
-            //}
           }
         }
       }
-      //if (clk3_percent >= threshold_percent){
-      //  clk_prob_dist[3] = (float_t)threshold_percent/(float_t)clk3_percent;
-      //}
-      //else{
-      //  clk_prob_dist[3] = 1.0;
-      //  threshold_percent -= clk3_percent;
-      //  if (clk2_percent >= threshold_percent){
-      //    clk_prob_dist[2] = (float_t)threshold_percent/(float_t)clk2_percent;
-      //  }
-      //  else{
-      //    clk_prob_dist[2] = 1.0;
-      //threshold_percent -= clk2_percent;
-      //    if (clk1_percent >= threshold_percent){
-      //      clk_prob_dist[1] = (float_t)threshold_percent/(float_t)clk1_percent;
-      //    }
-      //    else{
-      //      clk_prob_dist[1] = 1.0;
-      //      threshold_percent -= clk1_percent;
-      //      if (clk0_percent >= threshold_percent){
-      //        clk_prob_dist[0] = (float_t)threshold_percent/(float_t)clk0_percent;
-      //      }
-      //      else{
-      //        clk_prob_dist[0] = 1.0;
-      //        threshold_percent -= clk0_percent;
-      //      }
-      //    }
-      //  }
-      //}
     }
   fprintf(stderr, "CLOCK: clock prob dist %f %f %f %f\n", clk_prob_dist[0], clk_prob_dist[1], clk_prob_dist[2], clk_prob_dist[3]);
 }
