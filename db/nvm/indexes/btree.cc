@@ -13,29 +13,57 @@ extern "C"
 {
 
    // Helper Functions
-   uint64_t decode_size64(unsigned char* buf){
-      uint8_t* buffer = (uint8_t *) buf;
-      return (uint64_t)(buffer[7]) |
-         (uint64_t)((buffer[6]) << 8) |
-         (uint64_t)((buffer[5]) << 16) |
-         (uint64_t)((buffer[4]) << 24) |
-         (uint64_t)((buffer[3]) << 32) |
-         (uint64_t)((buffer[2]) << 40) |
-         (uint64_t)((buffer[1]) << 48) |
-         (uint64_t)((buffer[0]) << 56);
+   // uint64_t decode_size64(unsigned char* buf){
+   //    uint8_t* buffer = (uint8_t *) buf;
+   //    uint64_t res = (uint64_t)(buffer[7]) |
+   //       (uint64_t)((buffer[6]) << 8) |
+   //       (uint64_t)((buffer[5]) << 16) |
+   //       (uint64_t)((buffer[4]) << 24) |
+   //       (uint64_t)((buffer[3]) << 32) |
+   //       (uint64_t)((buffer[2]) << 40) |
+   //       (uint64_t)((buffer[1]) << 48) |
+   //       (uint64_t)((buffer[0]) << 56);
+   //    // while(res >= 100000000) res /= 10;
+   //    // while(res < 10000000) res *= 10;
+   //    return res;
+   // }
+   uint64_t decode_size64(unsigned char* buf) {
+      uint64_t res = 0;
+      for (int i = 0; i < 8; i++) {
+         if (buf[i] < '0' || buf[i] > '9') {
+            fprintf(stderr, "decode_size64: invalid key char: %d at loc: %d\n", buf[i] - '0', i);
+            break;
+         }
+         res *= 10;
+         res += (buf[i] - '0');
+      }
+      return res;
    }
+
+//   void encode_size64(char* dst, uint64_t value) {
+//     uint8_t* const buffer = reinterpret_cast<uint8_t*>(dst);
+//     buffer[7] = static_cast<uint8_t>(value);
+//     buffer[6] = static_cast<uint8_t>(value >> 8);
+//     buffer[5] = static_cast<uint8_t>(value >> 16);
+//     buffer[4] = static_cast<uint8_t>(value >> 24);
+//     buffer[3] = static_cast<uint8_t>(value >> 32);
+//     buffer[2] = static_cast<uint8_t>(value >> 40);
+//     buffer[1] = static_cast<uint8_t>(value >> 48);
+//     buffer[0] = static_cast<uint8_t>(value >> 56);
+//   }
 
   void encode_size64(char* dst, uint64_t value) {
     uint8_t* const buffer = reinterpret_cast<uint8_t*>(dst);
-    buffer[7] = static_cast<uint8_t>(value);
-    buffer[6] = static_cast<uint8_t>(value >> 8);
-    buffer[5] = static_cast<uint8_t>(value >> 16);
-    buffer[4] = static_cast<uint8_t>(value >> 24);
-    buffer[3] = static_cast<uint8_t>(value >> 32);
-    buffer[2] = static_cast<uint8_t>(value >> 40);
-    buffer[1] = static_cast<uint8_t>(value >> 48);
-    buffer[0] = static_cast<uint8_t>(value >> 56);
+    for (int i = 7; i >= 0; i--) {
+      buffer[i] = static_cast<uint8_t>(value % 10 + '0');
+      if (buffer[i] < '0' || buffer[i] > '9') {
+            fprintf(stderr, "encode_size64: invalid key char: %d at loc: %d\n", buffer[i], i);
+            break;
+         }
+      value /= 10;
+    }
   }
+
    bool isPopular(uint64_t k, std::map<uint64_t, uint64_t> *pop_table, uint32_t pop_rank) {
       std::map<uint64_t, uint64_t>::iterator i = pop_table->find(k);
       if (i != pop_table->end()) {

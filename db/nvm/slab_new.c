@@ -181,6 +181,19 @@ int get_slab_id_new(struct slab_context_new *ctx, size_t cur_item_size) {
    return -1;
 }
 
+int get_slab_id_by_key(struct slab_context_new *ctx, uint64_t key_range, uint64_t num_partitions) {
+   int num_slabs = ctx->nb_slabs;
+   int per_partition_size = MAX_KEY_RANGE / num_partitions;
+   uint64_t per_slab_size = per_partition_size / num_slabs;
+   int slab_id = (key_range % per_partition_size) / per_slab_size;
+   if (slab_id < num_slabs && slab_id >= 0) {
+      return slab_id;
+   } else {
+      fprintf(stderr,"ERROR: invalid slab id:%d\n", slab_id);
+      return -1;
+   }
+}
+
 off_t item_page_num_new(struct slab_new *s, size_t idx) {
     size_t items_per_page = PAGE_SIZE/s->item_size;
     return idx / items_per_page;
@@ -252,7 +265,7 @@ off_t item_in_page_offset_new(struct slab_new *s, size_t idx) {
  * Create a slab: a file that only contains items of a given size.
  * @callback is a callback that will be called on all previously existing items of the slab if it is restored from disk.
  */
-struct slab_new* create_slab_new(struct slab_context_new *ctx, int slab_worker_id, size_t item_size) {
+struct slab_new* create_slab_new(struct slab_context_new *ctx, int slab_worker_id, int slab_id, size_t item_size) {
    //fprintf(stderr, "create_slab_new start \n");
 
    struct stat sb;
@@ -261,7 +274,7 @@ struct slab_new* create_slab_new(struct slab_context_new *ctx, int slab_worker_i
 
    size_t disk = 0;
 
-   sprintf(path, PATH, disk, slab_worker_id, 0LU, item_size);
+   sprintf(path, PATH, disk, slab_worker_id, slab_id, item_size);
    // JIANAN: TODO
    // If file is opened with O_DIRECT flag, for synchronous IO, flush + fsync?
    // JIANAN: use kernel page cache
@@ -279,6 +292,9 @@ struct slab_new* create_slab_new(struct slab_context_new *ctx, int slab_worker_i
    if(s->size_on_disk < 2*PAGE_SIZE) {
       // JIANAN: fallocate only supported on xfs, ext4, btrfs, tmpfs, gfs
       int allocateRes = fallocate(s->fd, 0, 0, 2*PAGE_SIZE);
+      if (allocateRes != 0) {
+         fprintf(stderr, "in create_slab_new fallocate failed, error code: %d, error msg: %s\n", errno, strerror(errno));
+      }
       s->size_on_disk = 2*PAGE_SIZE;
       //fprintf(stderr, "fallocate returns %d, fd %d\n", allocateRes, s->fd);
    }
@@ -336,25 +352,44 @@ int close_slab_fds(struct slab_context_new *ctx) {
 /*
  * Double the size of a slab on disk
  */
+// struct slab_new* resize_slab_new(struct slab_new *s) {
+//    if(s->size_on_disk < 10000000000LU) {
+//       s->size_on_disk *= 2;
+//       if(fallocate(s->fd, 0, 0, s->size_on_disk)) {
+//          fprintf(stderr, "errno = %d, %s\n", errno, strerror(errno));
+//          fprintf(stderr, "Cannot resize slab (item size %lu) new size %lu\n", s->item_size, s->size_on_disk);
+//       }
+         
+//       s->nb_max_items *= 2;
+//    } else {
+//       size_t nb_items_per_page = PAGE_SIZE / s->item_size;
+//       s->size_on_disk += 10000000000LU;
+//       if(fallocate(s->fd, 0, 0, s->size_on_disk)){
+//          fprintf(stderr, "errno = %d, %s\n", errno, strerror(errno));
+//          fprintf(stderr, "Cannot resize slab (item size %lu) new size %lu\n", s->item_size, s->size_on_disk);
+//       }        
+//       s->nb_max_items = s->size_on_disk / PAGE_SIZE * nb_items_per_page;
+//    }
+
+//    return s;
+// }
+
 struct slab_new* resize_slab_new(struct slab_new *s) {
-   if(s->size_on_disk < 10000000000LU) {
-      s->size_on_disk *= 2;
-      if(fallocate(s->fd, 0, 0, s->size_on_disk))
-         fprintf(stderr, "Cannot resize slab (item size %lu) new size %lu\n", s->item_size, s->size_on_disk);
-      s->nb_max_items *= 2;
-   } else {
-      size_t nb_items_per_page = PAGE_SIZE / s->item_size;
-      s->size_on_disk += 10000000000LU;
-      if(fallocate(s->fd, 0, 0, s->size_on_disk))
-         fprintf(stderr, "Cannot resize slab (item size %lu) new size %lu\n", s->item_size, s->size_on_disk);
-      s->nb_max_items = s->size_on_disk / PAGE_SIZE * nb_items_per_page;
+   uint64_t ori_size = s->size_on_disk;
+   s->size_on_disk += RESIZE_SIZE_BASE;
+   size_t nb_items_per_page = PAGE_SIZE / s->item_size;
+   if(fallocate(s->fd, 0, 0, s->size_on_disk)) {
+      fprintf(stderr, "errno = %d, %s\n", errno, strerror(errno));
+      fprintf(stderr, "Cannot resize slab (origin size %lu) new size %lu\n", ori_size, s->size_on_disk);
    }
+   s->nb_max_items = s->size_on_disk / PAGE_SIZE * nb_items_per_page;
    return s;
 }
 
-void add_item_sync(struct slab_context_new *ctx, char *item, size_t item_size, struct op_result *res, bool load_phase_) {
+void add_item_sync(struct slab_context_new *ctx, char *item, size_t item_size, struct op_result *res, bool load_phase_, uint64_t key_range, uint64_t num_partitions) {
    // Step 0: find the slab file based on item size
-   int slab_id = get_slab_id_new(ctx, item_size);
+   //int slab_id = get_slab_id_new(ctx, item_size);
+   int slab_id = get_slab_id_by_key(ctx, key_range, num_partitions);
    struct slab_new *slab = ctx->slabs[slab_id];
    res->slab_id = slab_id;
 
@@ -438,9 +473,10 @@ void insert_item_at_idx(struct slab_new *slab, char *item, size_t item_size, siz
 }
 
 
-void update_item_sync(struct index_entry *e, struct slab_context_new *ctx, char *item, size_t item_size, struct op_result *res, bool load_phase_) {
+void update_item_sync(struct index_entry *e, struct slab_context_new *ctx, char *item, size_t item_size, struct op_result *res, bool load_phase_, uint64_t key_range, uint64_t num_partitions) {
    //fprintf(stderr, "Update\n");
-   int new_slab_id = get_slab_id_new(ctx, item_size);
+   //int new_slab_id = get_slab_id_new(ctx, item_size);
+   int new_slab_id = get_slab_id_by_key(ctx, key_range, num_partitions);
    struct slab_new *new_slab = ctx->slabs[new_slab_id];
    struct slab_new *old_slab = ctx->slabs[e->slab];
 
@@ -461,7 +497,7 @@ void update_item_sync(struct index_entry *e, struct slab_context_new *ctx, char 
          // JIANAN: TODO maybe exit here?
       }
       // add it to the new slab + idx
-      add_item_sync(ctx, item, item_size, res, load_phase_);
+      add_item_sync(ctx, item, item_size, res, load_phase_, key_range, num_partitions);
 
    }
    return;

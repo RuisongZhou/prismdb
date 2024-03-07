@@ -1408,6 +1408,39 @@ class Benchmark {
     return Slice(key_guard->get(), key_size_);
   }
 
+  void GenerateKeyFromInt(uint64_t v, int64_t num_keys, Slice* key) {
+    char* start = const_cast<char*>(key->data());
+    char* pos = start;
+    char str[9];
+    //确保v的长度,确保v只包含8个数字
+    while(v < 10000000) {
+      v *= 10;
+    }
+    while(v >= 100000000) {
+      v /= 10;
+    }
+    snprintf(str, sizeof(str), "%d", v);
+    //std::cout<<"str:"<<str<<std::endl;
+    int bytes_to_fill = std::min(key_size_ - static_cast<int>(pos - start), 8);
+    memcpy(pos, str, bytes_to_fill);
+    pos += bytes_to_fill;
+    if (key_size_ > pos - start) {
+      memset(pos, '0', key_size_ - (pos - start));
+    }   
+  }
+
+  Slice GenerateSimpleKey(uint64_t v) {
+    //确保v的长度,确保v只包含8个数字
+    while(v < 10000000) {
+      v *= 10;
+    }
+    while(v >= 100000000) {
+      v /= 10;
+    }
+    std::string key = std::to_string(v);
+    return Slice(key);
+  }
+
   // Generate key according to the given specification and random number.
   // The resulting key will have the following format (if keys_per_prefix_
   // is positive), extra trailing bytes are either cut off or padded with '0'.
@@ -1420,45 +1453,47 @@ class Benchmark {
   //   ----------------------------
   //   |        key 00000         |
   //   ----------------------------
-  void GenerateKeyFromInt(uint64_t v, int64_t num_keys, Slice* key) {
-    char* start = const_cast<char*>(key->data());
-    char* pos = start;
-    // ASH: hack
-    int64_t keys_per_prefix = 0;
-    int32_t prefix_size = 0;
-    if (keys_per_prefix > 0) {
-      int64_t num_prefix = num_keys / keys_per_prefix;
-      int64_t prefix = v % num_prefix;
-      int bytes_to_fill = std::min(prefix_size, 8);
-      if (port::kLittleEndian) {
-        for (int i = 0; i < bytes_to_fill; ++i) {
-          pos[i] = (prefix >> ((bytes_to_fill - i - 1) << 3)) & 0xFF;
-        }
-      } else {
-        memcpy(pos, static_cast<void*>(&prefix), bytes_to_fill);
-      }
-      if (prefix_size > 8) {
-        // fill the rest with 0s
-        memset(pos + 8, '0', prefix_size - 8);
-      }
-      pos += prefix_size;
-    }
 
-    int bytes_to_fill = std::min(key_size_ - static_cast<int>(pos - start), 8);
-    if (port::kLittleEndian) {
-      for (int i = 0; i < bytes_to_fill; ++i) {
-        pos[i] = (v >> ((bytes_to_fill - i - 1) << 3)) & 0xFF;
-      }
-    } else {
-      memcpy(pos, static_cast<void*>(&v), bytes_to_fill);
-    }
-    pos += bytes_to_fill;
-    if (key_size_ > pos - start) {
-      memset(pos, '0', key_size_ - (pos - start));
-    }
-    //fprintf(stderr, "SSS v %lu num_keys %d key_size %d\n", v, num_keys, key_size_);
-    //fprintf(stderr, "PPP key %s size %d\n", key->ToString(true).c_str(), key->size());
-  }
+  // void GenerateKeyFromInt(uint64_t v, int64_t num_keys, Slice* key) {
+  //   char* start = const_cast<char*>(key->data());
+  //   char* pos = start;
+  //   // ASH: hack
+  //   int64_t keys_per_prefix = 0;
+  //   int32_t prefix_size = 0;
+  //   if (keys_per_prefix > 0) {
+  //     int64_t num_prefix = num_keys / keys_per_prefix;
+  //     int64_t prefix = v % num_prefix;
+  //     int bytes_to_fill = std::min(prefix_size, 8);
+  //     if (port::kLittleEndian) {
+  //       for (int i = 0; i < bytes_to_fill; ++i) {
+  //         pos[i] = (prefix >> ((bytes_to_fill - i - 1) << 3)) & 0xFF;
+  //       }
+  //     } else {
+  //       memcpy(pos, static_cast<void*>(&prefix), bytes_to_fill);
+  //     }
+  //     if (prefix_size > 8) {
+  //       // fill the rest with 0s
+  //       memset(pos + 8, '0', prefix_size - 8);
+  //     }
+  //     pos += prefix_size;
+  //   }
+
+  //   int bytes_to_fill = std::min(key_size_ - static_cast<int>(pos - start), 8);
+  //   if (port::kLittleEndian) {
+  //     for (int i = 0; i < bytes_to_fill; ++i) {
+  //       pos[i] = (v >> ((bytes_to_fill - i - 1) << 3)) & 0xFF;
+  //     }
+  //   } else {
+  //     memcpy(pos, static_cast<void*>(&v), bytes_to_fill);
+  //   }
+  //   pos += bytes_to_fill;
+  //   if (key_size_ > pos - start) {
+  //     memset(pos, '0', key_size_ - (pos - start));
+  //   }
+  //   //std::cout<<"gen key:"<<key->ToString()<<std::endl;
+  //   //fprintf(stderr, "SSS v %lu num_keys %d key_size %d\n", v, num_keys, key_size_);
+  //   //fprintf(stderr, "PPP key %s size %d\n", key->ToString(true).c_str(), key->size());
+  // }
 
   void Run() {
     PrintHeader();
@@ -2431,8 +2466,9 @@ class Benchmark {
       std::unique_ptr<const char[]> key_guard;
       Slice key = AllocateKey(&key_guard);
 			long k = keys.at(i);
+      //std::cout<<"k="<<k<<std::endl;
       GenerateKeyFromInt(k, FLAGS_num, &key);
-
+      //std::cout<<"key="<<key.ToString(true)<<std::endl;
       //write
       Status s = db_->Put(write_options_, key, gen.Generate(value_size_));
       //fprintf(stderr, "Done db_bench %lu\n", k);

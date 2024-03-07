@@ -388,25 +388,23 @@ void DBImpl::initPartitions(void) {
           // cluster 39 config 100, 200, 300, 400, 600
 	  // cluster 51 config 300, 400, 500, 600, 1000
           //ctx->slabs[j] = create_slab_new(partitions[i].slabContext, i, 64); // read dominated trace cluster 19 (was 256)
-          ctx->slabs[j] = create_slab_new(partitions[i].slabContext, i, 300); // read dominated trace cluster 19 (was 256)
+          ctx->slabs[j] = create_slab_new(partitions[i].slabContext, i, j, 300); // read dominated trace cluster 19 (was 256)
         }
 	else if (j==1){
-          ctx->slabs[j] = create_slab_new(partitions[i].slabContext, i, 400); // read dominated trace cluster 19 (was 256)
+          ctx->slabs[j] = create_slab_new(partitions[i].slabContext, i, j, 400); // read dominated trace cluster 19 (was 256)
         }
 	else if (j==2){
-          ctx->slabs[j] = create_slab_new(partitions[i].slabContext, i, 500); // read dominated trace cluster 19 (was 256)
+          ctx->slabs[j] = create_slab_new(partitions[i].slabContext, i, j, 500); // read dominated trace cluster 19 (was 256)
         }
 	else if (j==3){
-          ctx->slabs[j] = create_slab_new(partitions[i].slabContext, i, 600); // read dominated trace cluster 19 (was 256)
+          ctx->slabs[j] = create_slab_new(partitions[i].slabContext, i, j, 600); // read dominated trace cluster 19 (was 256)
         }
 	else{
-          ctx->slabs[j] = create_slab_new(partitions[i].slabContext, i, 1000); // write dominated trace cluster 39
+          ctx->slabs[j] = create_slab_new(partitions[i].slabContext, i, j, 1000); // write dominated trace cluster 39
         }
       } else {
         //ctx->slabs[j] = create_slab_new(partitions[i].slabContext, i, 1024);
-        if (j == 0) {
-          ctx->slabs[j] = create_slab_new(partitions[i].slabContext, i, 1024);
-        }  
+        ctx->slabs[j] = create_slab_new(partitions[i].slabContext, i, j, 1024);
         //if (j == 0) {
         //  ctx->slabs[j] = create_slab_new(partitions[i].slabContext, i, 800);
         //} else if (j == 1) {
@@ -2874,6 +2872,7 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
   // Step 1: Get partition for the key
   Status s;
   uint64_t k = decode_size64((unsigned char*)key.data());
+  //uint64_t k = encode_key_range64((unsigned char*)key.data());
   int p = DBImpl::getPartition(k);
   //fprintf(stderr, "key %d, partition %d\n", k, p);
 
@@ -3115,6 +3114,7 @@ Status DBImpl::Scan(const ReadOptions& options, const Slice& start_key,
   lsm_iter->Seek(start_key);
 
   uint64_t k = decode_size64((unsigned char*)start_key.data());
+  //uint64_t k = encode_key_range64((unsigned char*)start_key.data());
   int curr_pid = DBImpl::getPartition(k);
   //fprintf(stderr, "DBImpl::Scan() called, start_key is %llu, scan_size is %llu, start_pid %d\n", k, scan_size, curr_pid);
 
@@ -3600,9 +3600,15 @@ void DBImpl::GetApproximateSizes(const Range* range, int n, uint64_t* sizes) {
 // JIANAN: helper function to determine which partition that a key should belong to
 // Static Partition
 int DBImpl::getPartition(uint64_t k) {
-  size_t partition_size = numKeys / numPartitions;
+  size_t partition_size = MAX_KEY_RANGE / numPartitions;
   //fprintf(stderr, "getPartition returns \n");
-  return k / partition_size;
+  int partition_id = k / partition_size;
+  if (partition_id >= numPartitions | partition_id < 0) {
+    fprintf(stderr, "ERROR: partition_id %d is out of range\n", partition_id);
+    return -1;
+  }
+  return partition_id;
+
   //return (k-1) / partition_size; // Adding -1 since keys start from 1 not 0
 }
 
@@ -3648,8 +3654,12 @@ Status DBImpl::PutImpl(const WriteOptions& opt, const Slice& key, const Slice& v
 
   // Step 1: Find the partition for key
   uint64_t k = decode_size64((unsigned char*)key.data());
-  int p = DBImpl::getPartition(k);
+  //uint64_t k = encode_key_range64((unsigned char*)key.data());
 
+  uint64_t key_range = k;
+
+  int p = DBImpl::getPartition(k);
+  //printf("PutImpl key str is %s and key int is %llu\n", key.ToString(true).c_str(), k);
   //fprintf(stderr, "PutImpl key str is %s and key int is %llu\n", key.ToString(true).c_str(), k);
   // check if optane is full, if not, busy waiting or sleep
   //fprintf(stderr, "partition_size: %lu\n", partitions[p].size_in_bytes);
@@ -3680,16 +3690,17 @@ Status DBImpl::PutImpl(const WriteOptions& opt, const Slice& key, const Slice& v
   memcpy(item_key, key.data(), key_sz);
   memcpy(item_value, value.data(), val_sz);
 
-  // check if optane allocation has exceeded, then wait for migration to finish
-  //while (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold/(float)numPartitions));
-  //if (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold/(float)numPartitions)){
+  // //check if optane allocation has exceeded, then wait for migration to finish
+  // //while (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold/(float)numPartitions));
+  // if (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold/(float)numPartitions)){
   //  fprintf(stderr, "ERROR: partition %d goes beyond max capacity!\n", p);
-  //}
-  //while (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold/(float)numPartitions)){
-    //while (partitions[p].background_compaction_scheduled){
-    //fprintf(stderr, "%X\tPUT_THROTTLE partition size %llu back_comp_sched %d\n", std::this_thread::get_id(), partitions[p].size_in_bytes, partitions[p].background_compaction_scheduled);
-    //partitions[p].background_work_finished_signal.Wait();
-  //}
+  // }
+  // while (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold/(float)numPartitions)){
+  //   //while (partitions[p].background_compaction_scheduled){
+  //   //fprintf(stderr, "%X\tPUT_THROTTLE partition size %llu back_comp_sched %d\n", std::this_thread::get_id(), partitions[p].size_in_bytes, partitions[p].background_compaction_scheduled);
+  //   //partitions[p].background_work_finished_signal.Wait();
+  //   std::this_thread::sleep_for(milliseconds(1));
+  // }
 
   // Step 3: Acquire partition lock and check if key already exists in the index
   // Then insert/update Optane accordingly
@@ -3727,7 +3738,7 @@ Status DBImpl::PutImpl(const WriteOptions& opt, const Slice& key, const Slice& v
   auto begin_optane = high_resolution_clock::now();
   if (in_optane) {
     old_item_size = partitions[p].slabContext->slabs[old_e.slab]->item_size;
-    update_item_sync(&old_e, partitions[p].slabContext, item, item_size, res, load_phase_);
+    update_item_sync(&old_e, partitions[p].slabContext, item, item_size, res, load_phase_, key_range, numPartitions);
     //fprintf(stderr, "update key %llu done\n", k);
 
     // Update key popularity if it is re-accessed on NVM
@@ -3751,7 +3762,7 @@ Status DBImpl::PutImpl(const WriteOptions& opt, const Slice& key, const Slice& v
       }
     }
   } else {
-    add_item_sync(partitions[p].slabContext, item, item_size, res, load_phase_);
+    add_item_sync(partitions[p].slabContext, item, item_size, res, load_phase_, key_range, numPartitions);
     //fprintf(stderr, "insert key %llu done\n", k);
 
     if (options_.migration_metric == 2 && !(load_phase_)) {
@@ -3844,7 +3855,7 @@ Status DBImpl::PutImpl(const WriteOptions& opt, const Slice& key, const Slice& v
   }
 
   // trigger the rate limiter when current size exceeds the pre-set rate-limit threshold
-  if (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold*partitions[p].ratelimit_threshold/(float)numPartitions)) {
+  while (partitions[p].size_in_bytes > (float)(maxDbSizeBytes*optaneThreshold*partitions[p].ratelimit_threshold/(float)numPartitions)) {
     if (++sleep_counter%5 == 0){
       env_->SleepForMicroseconds(20); // was 20 for YCSB, setting 100 for twitter
       //fprintf(stderr, "%X\tpartition %llu rate limit", std::this_thread::get_id(), p);
@@ -4024,6 +4035,7 @@ Status DBImpl::DeleteImpl(const WriteOptions& opt, const Slice& key){
 
   // Step 1: find the partition for key
   uint64_t k = decode_size64((unsigned char*)key.data());
+  uint64_t key_range = k;
   int p = DBImpl::getPartition(k);
   //fprintf(stderr, "key %d, partition %d\n", k, p);
 
@@ -4065,7 +4077,7 @@ Status DBImpl::DeleteImpl(const WriteOptions& opt, const Slice& key){
 
     // Add the tombstone message for this item on optane
     op_result *res = new op_result;
-    add_item_sync(partitions[p].slabContext, item, item_size, res, load_phase_);
+    add_item_sync(partitions[p].slabContext, item, item_size, res, load_phase_, key_range, numPartitions);
     if (res->success == -1) {
       fprintf(stderr, "%s\n", "delete() on qlc failed");
       delete res;
@@ -4517,7 +4529,7 @@ void ClockCache::GenClockProbDist(float pop_threshold){
   uint32_t num_clk2 = clock_cache_value_hist_[2];
   uint32_t num_clk3 = clock_cache_value_hist_[3];
   fprintf(stderr, "CLOCK: clock hist values %lu %lu %lu %lu\n", num_clk0, num_clk1, num_clk2, num_clk3);
-  uint32_t total = num_clk0 + num_clk1 + num_clk2 + num_clk3;
+  uint32_t total = num_clk0 + num_clk1 + num_clk2 + num_clk3 + 1;
   for (int i=0; i<=CLOCK_BITS_MAX_VALUE; i++){
     clk_prob_dist[i] = -1;
   }
