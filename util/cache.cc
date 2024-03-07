@@ -7,9 +7,6 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
-#include <thread>
-#include <map>
-#include <atomic>
 
 #include "port/port.h"
 #include "port/thread_annotations.h"
@@ -336,7 +333,7 @@ void LRUCache::Prune() {
   }
 }
 
-static const int kNumShardBits = 4; // P2 HACK: original value was 4
+static const int kNumShardBits = 4;
 static const int kNumShards = 1 << kNumShardBits;
 
 class ShardedLRUCache : public Cache {
@@ -345,18 +342,11 @@ class ShardedLRUCache : public Cache {
   port::Mutex id_mutex_;
   uint64_t last_id_;
 
-  // P2 HACK: original HashSlice function
   static inline uint32_t HashSlice(const Slice& s) {
     return Hash(s.data(), s.size(), 0);
   }
 
-  //std::map<std::thread::id, uint32_t> tid_shard_map;
-  // std::thread::id tids[8];
-  // std::atomic<int> num_tids;
-
-  static uint32_t Shard(uint32_t hash) {
-    return hash >> (32 - kNumShardBits); 
-  }
+  static uint32_t Shard(uint32_t hash) { return hash >> (32 - kNumShardBits); }
 
  public:
   explicit ShardedLRUCache(size_t capacity) : last_id_(0) {
@@ -364,7 +354,6 @@ class ShardedLRUCache : public Cache {
     for (int s = 0; s < kNumShards; s++) {
       shard_[s].SetCapacity(per_shard);
     }
-    // num_tids=0;
   }
   ~ShardedLRUCache() override {}
   Handle* Insert(const Slice& key, void* value, size_t charge,
