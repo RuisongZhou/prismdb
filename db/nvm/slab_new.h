@@ -12,7 +12,6 @@
   #define PAGE_SIZE (4LU*1024LU)
 #endif
 
-#define MAX_KEY_RANGE (100000000)
 #define RESIZE_SIZE_BASE ((256LU*1024LU*1024LU))
 
 struct kv_pair {
@@ -65,6 +64,7 @@ struct slab_new {
 
 // Helper functions
 int get_slab_id_new(struct slab_context_new *ctx, size_t item_size);
+int get_slab_id_by_key(struct slab_context_new *ctx, uint64_t key_range, uint64_t partition_size);
 off_t item_page_num_new(struct slab_new *s, size_t idx);
 //void * get_disk_page(struct slab_new *s, uint64_t idx);
 off_t item_in_page_offset_new(struct slab_new *s, size_t idx);
@@ -89,8 +89,8 @@ int update_freelist(struct slab_context_new *ctx, struct index_entry *e);
 void sort_all_slab_freelist(struct slab_context_new *ctx); //FREELIST
 // Helper function to print the free list slab index values
 void print_freelist(struct slab_context_new *ctx);
-void add_item_sync(struct slab_context_new *ctx, char *item, size_t item_size, struct op_result *res, bool load_phase_, uint64_t key_range, uint64_t num_partitions);
-void update_item_sync(struct index_entry *e, struct slab_context_new *ctx, char *item, size_t item_size, struct op_result *res, bool load_phase_, uint64_t key_range, uint64_t num_partitions);
+void add_item_sync(struct slab_context_new *ctx, char *item, size_t item_size, struct op_result *res, bool load_phase_, uint64_t key_range, uint64_t partition_size);
+void update_item_sync(struct index_entry *e, struct slab_context_new *ctx, char *item, size_t item_size, struct op_result *res, bool load_phase_, uint64_t key_range, uint64_t partition_size);
 void insert_item_at_idx(struct slab_new *slab, char *item, size_t item_size, size_t idx, struct op_result *res, bool load_phase_);
 
 uint64_t encode_key_range64(unsigned char* buf);

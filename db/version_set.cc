@@ -44,7 +44,7 @@ static double MaxBytesForLevel(const Options* options, int level) {
   // the level-0 compaction threshold based on number of files.
 
   // Result for both level-0 and level-1
-  double result = 10. * 1048576.0;
+  double result = 256. * 1048576.0;
   while (level > 1) {
     result *= 10;
     level--;
@@ -838,11 +838,6 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
   }
   Finalize(v);
 
-  /*const std::vector<FileMetaData*>& files = v->files_[1];
-  for (size_t i = 0; i < files.size(); i++) {
-    fprintf(stderr, "%X\tVersionSet files %llu\n", std::this_thread::get_id(), files[i]->number);
-  }*/
-
   // Initialize new descriptor log file if necessary by creating
   // a temporary file that contains a snapshot of the current version.
   std::string new_manifest_file;
@@ -862,7 +857,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
 
   // Unlock during expensive MANIFEST log write
   {
-    //mu->Unlock();
+    mu->Unlock();
 
     // Write new record to MANIFEST log
     if (s.ok()) {
@@ -884,7 +879,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
       s = SetCurrentFile(env_, dbname_, manifest_file_number_);
     }
 
-    //mu->Lock();
+    mu->Lock();
   }
 
   // Install the new version
@@ -1153,10 +1148,15 @@ int VersionSet::NumLevelFiles(int level) const {
 // PRISMDB
 const char* VersionSet::LevelSummary(LevelSummaryStorage* scratch) const {
   // Update code if kNumLevels changes
-  static_assert(config::kNumLevels == 2, "");
-  std::snprintf(
-      scratch->buffer, sizeof(scratch->buffer), "files[ %d ]",
-      int(current_->files_[1].size()));
+  // static_assert(config::kNumLevels == 7, "");
+  // std::snprintf(
+  //     scratch->buffer, sizeof(scratch->buffer), "files[ %d ]",
+  //     int(current_->files_[1].size()));
+  std::snprintf(scratch->buffer, sizeof(scratch->buffer),
+           "files[ %d %d %d %d %d %d %d ]", int(current_->files_[0].size()),
+           int(current_->files_[1].size()), int(current_->files_[2].size()),
+           int(current_->files_[3].size()), int(current_->files_[4].size()),
+           int(current_->files_[5].size()), int(current_->files_[6].size()));
   return scratch->buffer;
 }
 

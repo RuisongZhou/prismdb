@@ -24,7 +24,7 @@ namespace leveldb {
 namespace config {
 // PRISMDB
 // L0 is optane level, L1 is flash level
-static const int kNumLevels = 2;
+static const int kNumLevels = 7;
 
 // Level-0 compaction is started when we hit this many files.
 static const int kL0_CompactionTrigger = 4;
