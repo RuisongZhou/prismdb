@@ -112,7 +112,40 @@ bool read_item_val(struct slab_context_new *ctx, struct index_entry *e, char *bu
    memcpy(buf, &disk_page[offset], val_size);
    return true;
 }
+void put_page_in_cache(struct slab_new *cur_slab, off_t pg_offset, char *disk_page, struct kv_pair *cache) {
+   size_t offset = pg_offset + sizeof(size_t);
+   char key_size_char[sizeof(size_t)];
+   memcpy(&key_size_char, &disk_page[offset], sizeof(size_t));
+   size_t key_size = decode_size(&key_size_char);
+   //fprintf(stderr, "after decode key, key size %zu\n", key_size);
 
+   offset = offset + sizeof(size_t);
+   char val_size_char[sizeof(size_t)];
+   memcpy(&val_size_char, &disk_page[offset], sizeof(size_t));
+   size_t val_size = decode_size(&val_size_char);
+
+   //fprintf(stderr, "after decode key, key size %zu, val_size %zu\n", key_size, val_size);
+
+   // TODO: HACK: Key size is -1 for deleted keys, value size is 0
+   if (key_size == -1){
+     cache->key_size = -1;
+     fprintf(stderr, "after decode key, key size %d, val_size %zu\n", key_size, val_size);
+     key_size = sizeof(uint64_t);
+   }
+   else {
+    cache->key_size = key_size;
+   }
+   cache->val_size = val_size;
+
+   offset = pg_offset + sizeof(struct item_metadata);
+   memcpy(cache->buf, &disk_page[offset], key_size);
+
+   offset = pg_offset + sizeof(struct item_metadata) + key_size;
+   //fprintf(stderr, "page offset %zu, key size %zu, value size %zu\n", pg_offset, key_size, val_size);
+   memcpy(&cache->buf[key_size], &disk_page[offset], val_size);
+   //fprintf(stderr, "after copying value to buf\n");
+   return;
+}
 
 // Assume the caller has already memory-allocate res
 // This function reads the key and value from Optane, using fields from index_entry
@@ -195,6 +228,7 @@ int get_slab_id_by_key(struct slab_context_new *ctx, uint64_t key_range, uint64_
 
 off_t item_page_num_new(struct slab_new *s, size_t idx) {
     size_t items_per_page = PAGE_SIZE/s->item_size;
+    //fprintf(stderr, "items_per_page %zu\n", items_per_page);
     return idx / items_per_page;
  }
 

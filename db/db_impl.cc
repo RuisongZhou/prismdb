@@ -1268,8 +1268,8 @@ void DBImpl::MaybeScheduleCompaction(uint8_t pid, MigrationReason reason) {
     env_->SchedulePartition(&DBImpl::BGWork, this, pid);
     p_ctx->background_work_finished_signal.Wait();
   }
-
-  MaybeScheduleCompaction();
+  //level compaction
+  //MaybeScheduleCompaction();
 }
 
 void DBImpl::MaybeScheduleCompaction() {
@@ -2311,8 +2311,8 @@ void DBImpl::SelectMigrationKeys(
   }
 
   if (options_.migration_logging) {
-    fprintf(stderr, "DBG: %X\t Num selected keys for migration %d\n",
-            std::this_thread::get_id(), keys.nb_entries);
+    fprintf(stderr, "DBG: %X\t partition: %d Num selected keys for migration %d\n",
+            std::this_thread::get_id(), p_ctx->pid, keys.nb_entries);
   }
   auto end_select_btree = high_resolution_clock::now();
 
@@ -2925,6 +2925,54 @@ Status DBImpl::DoCompactionWork(
   // auto st = high_resolution_clock::now();
   uint32_t mig_key_idx = 0;
   int prev_mig_key_idx = -1;  // used to cache results of previous optane read
+  struct kv_pair* prefetch_cache[migration_keys.size()];
+  std::unordered_map<std::string, std::vector<std::pair<index_entry, uint32_t>>> prefetch_map;
+  int prefetch_count = 0;
+  // prefetch optane kv
+  if (enable_migration_prefetch) {   
+    while (mig_key_idx < migration_keys.size()) {
+      uint32_t slab_idx = migration_keys[mig_key_idx].slab;
+      struct slab_new *cur_slab = p_ctx->slabContext->slabs[slab_idx];
+      size_t page_num = item_page_num_new(cur_slab, migration_keys[mig_key_idx].slab_idx);
+      std::string slab_page = std::to_string(slab_idx) + ":" + std::to_string(page_num);
+      prefetch_map[slab_page].push_back(std::make_pair(migration_keys[mig_key_idx], mig_key_idx));
+      mig_key_idx++;
+    }
+    mig_key_idx = 0;
+    fprintf(stderr, "partition: %d need to fetch %d pages\n", p_ctx->pid, prefetch_map.size());
+    //fprintf(stderr, "partition: %d prefetch_cache size %d\n", p_ctx->pid, sizeof(prefetch_cache) / sizeof(prefetch_cache[0]);
+    //遍历map中的每一个page，整个读取，并放入cache对应位置中
+    for (auto it = prefetch_map.begin(); it != prefetch_map.end(); it++) {
+      //fprintf(stderr, "partition: %d prefetch_map slab:page: %s has %d items to fetch\n", p_ctx->pid, it->first.c_str(), it->second.size());
+      std::string slab_page = it->first;
+      uint32_t slab_idx = std::stoul(slab_page.substr(0, slab_page.find(":")));
+      size_t page_num = std::stoul(slab_page.substr(slab_page.find(":") + 1));
+      //std::cout << "slab_idx: " << slab_idx << " page_num: " << page_num << std::endl;
+      struct slab_new *cur_slab = p_ctx->slabContext->slabs[slab_idx];
+      #ifdef USE_O_DIRECT
+      char disk_page[PAGE_SIZE] __attribute__((aligned(PAGE_SIZE)));
+      #else
+      char disk_page[PAGE_SIZE];
+      #endif
+      //char disk_page[PAGE_SIZE];
+      off_t page_offset = page_num * PAGE_SIZE;
+      //prefetch entire page data
+      int r = pread(cur_slab->fd, disk_page, PAGE_SIZE, page_offset);
+      if(r != PAGE_SIZE) {
+        fprintf(stderr,"migration preftch pread failed! Read %d instead of %lu (offset %lu)\n", r, PAGE_SIZE, page_offset);
+      }
+      //放入对应的cache_idx中
+      for (int i = 0; i < it->second.size(); i++) {
+        off_t pg_offset = item_in_page_offset_new(cur_slab, it->second[i].first.slab_idx);
+        uint32_t cache_idx = it->second[i].second;
+        prefetch_cache[cache_idx] = (struct kv_pair*)malloc(sizeof(struct kv_pair));
+        prefetch_cache[cache_idx]->buf = (char*)malloc((2 << 15) * sizeof(char));
+        put_page_in_cache(cur_slab, pg_offset, disk_page, prefetch_cache[cache_idx]);
+        prefetch_count++;   
+      }
+    }
+    assert(prefetch_count == migration_keys.size());
+  }
 
   while ((input->Valid() || mig_key_idx < migration_keys.size()) &&
          !shutting_down_.load(std::memory_order_acquire)) {
@@ -2954,10 +3002,20 @@ Status DBImpl::DoCompactionWork(
 
       if (mig_key_idx < migration_keys.size()) {
         if (prev_mig_key_idx != mig_key_idx) {
-          read_item_key_val(p_ctx->slabContext, &migration_keys[mig_key_idx],
+          if (enable_migration_prefetch) {
+            kv.key_size = prefetch_cache[mig_key_idx]->key_size;
+            kv.val_size = prefetch_cache[mig_key_idx]->val_size;
+            memcpy(kv.buf, prefetch_cache[mig_key_idx]->buf, kv.key_size + kv.val_size);
+            (void)encode_size64(kv.buf, migration_keys_prefix[mig_key_idx]);
+            //release cache when used
+            free(prefetch_cache[mig_key_idx]->buf);
+            free(prefetch_cache[mig_key_idx]);
+          } else {
+            read_item_key_val(p_ctx->slabContext, &migration_keys[mig_key_idx],
                             &kv);
-          // HACK: overwrite key with migration_keys_prefix[i]
-          (void)encode_size64(kv.buf, migration_keys_prefix[mig_key_idx]);
+            // HACK: overwrite key with migration_keys_prefix[i]
+            (void)encode_size64(kv.buf, migration_keys_prefix[mig_key_idx]);
+          }         
           prev_mig_key_idx = mig_key_idx;
         }
 
@@ -3049,10 +3107,25 @@ Status DBImpl::DoCompactionWork(
         }
       }
     } else {  // iterator not valid, migrate optane mig key
-      read_item_key_val(p_ctx->slabContext, &migration_keys[mig_key_idx], &kv);
-      // HACK: overwrite key with migration_keys_prefix[i]
-      (void)encode_size64(kv.buf, migration_keys_prefix[mig_key_idx]);
-
+      //fprintf(stderr, "iterator not valid, migrate optane mig key\n");
+      if (prev_mig_key_idx != mig_key_idx) {
+        if (enable_migration_prefetch) {
+          kv.key_size = prefetch_cache[mig_key_idx]->key_size;
+          kv.val_size = prefetch_cache[mig_key_idx]->val_size;
+          memcpy(kv.buf, prefetch_cache[mig_key_idx]->buf, kv.key_size + kv.val_size);
+          (void)encode_size64(kv.buf, migration_keys_prefix[mig_key_idx]);
+          //release cache when used
+          free(prefetch_cache[mig_key_idx]->buf);
+          free(prefetch_cache[mig_key_idx]);
+        } else {
+          read_item_key_val(p_ctx->slabContext, &migration_keys[mig_key_idx],
+                          &kv);
+          // HACK: overwrite key with migration_keys_prefix[i]
+          (void)encode_size64(kv.buf, migration_keys_prefix[mig_key_idx]);
+        }         
+        prev_mig_key_idx = mig_key_idx;
+      }
+      //else: already read the key from optane -> kv.buf
       if (kv.key_size != -1) {
         // auto s11 = high_resolution_clock::now();
         (void)EncodeFixed64(&kv.buf[kv.key_size], ((0 << 8) | kTypeValue));
@@ -3778,6 +3851,7 @@ void DBImpl::CheckAndTriggerUpserts(PartitionContext* p_ctx) {
 }
 
 // TODO: insert to clock cache
+// zyz TODO: cache adjacent keys
 Status DBImpl::Scan(const ReadOptions& options, const Slice& start_key,
                     const uint64_t scan_size,
                     std::vector<std::pair<Slice, Slice>>* results) {
@@ -3926,6 +4000,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options) {
 void DBImpl::RecordReadSample(Slice key) {
   MutexLock l(&mutex_);
   if (versions_->current()->RecordReadSample(key)) {
+    Log(options_.info_log, "MaybeScheduleCompaction in RecordReadSample\n");
     MaybeScheduleCompaction();
   }
 }
@@ -4133,6 +4208,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       mem_ = new MemTable(internal_comparator_);
       mem_->Ref();
       force = false;  // Do not force another compaction if have room
+      Log(options_.info_log, "MaybeScheduleCompaction in MakeRoomForWrite\n");
       MaybeScheduleCompaction();
     }
   }

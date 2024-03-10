@@ -32,6 +32,7 @@ extern "C" {
   #include "nvm/slab_new.h"
 }
 #include <mutex>
+#include <unordered_map>
 
 #include "tbb/concurrent_hash_map.h"
 
@@ -363,6 +364,7 @@ class DBImpl : public DB {
   float optaneThreshold = 0.11;
   uint64_t maxSstFileSizeBytes = 64*(2<<19); // size of sst files
   uint32_t minSstFileMigThreshold = 0;
+  bool enable_migration_prefetch = true;
   typedef struct PartitionContext {
     uint64_t last_upsert_fn = 0;
     uint8_t pid; // partition id
