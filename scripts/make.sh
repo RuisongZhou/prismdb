@@ -17,4 +17,4 @@ sudo rm -rf $optane_prism_path/*
 sudo rm -rf $qlc_prism_path/*
 
 # sleep for 60 secs to allow files to be removed
-sleep 60
+sleep 5

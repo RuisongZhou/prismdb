@@ -1253,7 +1253,7 @@ int DBImpl::getOverlapSSTBoundsOpt(
 void DBImpl::MaybeScheduleCompaction(uint8_t pid, MigrationReason reason) {
   PartitionContext* p_ctx = &partitions[pid];
   // p_ctx->mutex.AssertHeld();
-  if (p_ctx->background_compaction_scheduled) {
+  if (p_ctx->background_compaction_scheduled || background_compaction_scheduled_) {
     // Already scheduled
     fprintf(stderr, "PRISMDB: migration already scheduled\n");
   } else if (shutting_down_.load(std::memory_order_acquire)) {
@@ -2714,12 +2714,6 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
       std::this_thread::get_id(), output_number,
       compact->current_output()->smallest.user_key().ToString(true).c_str(),
       compact->current_output()->smallest.Encode().ToString(true).c_str());
-  fprintf(
-      stderr,
-      "%X\t FinishCompactionOutputFile FILE %llu LARGEST KEY %s encode %s\n",
-      std::this_thread::get_id(), output_number,
-      compact->current_output()->largest.user_key().ToString(true).c_str(),
-      compact->current_output()->largest.Encode().ToString(true).c_str());
 
   // Check for iterator errors
   Status s = input->status();
@@ -4537,10 +4531,12 @@ Status DBImpl::PutImpl(const WriteOptions& opt, const Slice& key,
             (uint64_t)rate_limit_size);
 
     while (partitions[p].size_in_bytes > rate_limit_size) {
+  
       if (++sleep_counter % 5 == 0) {
         env_->SleepForMicroseconds(100000);  // was 20 for YCSB, setting 100 for
                                              // twitter , now change to 100ms
       }
+      MaybeScheduleCompaction(p);
     }
   }
 
