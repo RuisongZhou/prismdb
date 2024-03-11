@@ -360,9 +360,9 @@ class DBImpl : public DB {
   uint64_t numPartitions = 8;
   uint64_t maxDbSizeBytes = 0;
   uint32_t maxKeySizeBytes = 8;
-  uint32_t maxKVSizeBytes = 1024;
+  uint32_t maxKVSizeBytes = 128;
   float optaneThreshold = 0.11;
-  uint64_t maxSstFileSizeBytes = 64*(2<<19); // size of sst files
+  uint64_t maxSstFileSizeBytes = 64*(2<<19); // size of sst files(64MB)
   uint32_t minSstFileMigThreshold = 0;
   bool enable_migration_prefetch = true;
   typedef struct PartitionContext {
@@ -438,6 +438,8 @@ class DBImpl : public DB {
 
     int migrationId = 0;
     int num_mig_keys = 0;
+    int page_count_prefetch = 0;
+    int page_count_disable_prefetch = 0;
     float mig_backgroundcall = 0;
     float mig_select = 0;
     float mig_select_lock = 0;
@@ -447,6 +449,9 @@ class DBImpl : public DB {
     float mig_pick_lock = 0;
     float mig_compaction = 0;
     float mig_compaction_lock = 0;
+    float mig_compaction_prefetch = 0;
+    float mig_compaction_prefetch_copy = 0;
+    float mig_compaction_prefetch_read_page = 0;
     float mig_compaction_read_optane = 0;
     float mig_compaction_read_qlc = 0;
     float mig_compaction_write_qlc = 0;
