@@ -445,8 +445,10 @@ class DBImpl : public DB {
     float mig_pick_lock = 0;
     float mig_compaction = 0;
     float mig_compaction_lock = 0;
+    int mig_compaction_read_optane_num = 0;
     float mig_compaction_read_optane = 0;
     float mig_compaction_read_qlc = 0;
+    int mig_compaction_write_qlc_num = 0;
     float mig_compaction_write_qlc = 0;
     float mig_remove = 0;
     float mig_remove_lock = 0;

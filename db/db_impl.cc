@@ -248,11 +248,17 @@ void DBImpl::ReportMigrationStats() {
     fprintf(
         stderr, "       Acquire lsm lock: %.f ns\n",
         (partitions[i].mig_compaction_lock / (float)partitions[i].migrationId));
+    fprintf(stderr, "       Average num keys read form optane: %.f\n",
+            (partitions[i].mig_compaction_read_optane_num /
+             (float)partitions[i].migrationId));
     fprintf(stderr, "       Read from optane: %.f ns\n",
             (partitions[i].mig_compaction_read_optane /
              (float)partitions[i].migrationId));
-    fprintf(stderr, "       Read from qlc: %.f ns\n",
-            (partitions[i].mig_compaction_read_qlc /
+    // fprintf(stderr, "       Read from qlc: %.f ns\n",
+    //         (partitions[i].mig_compaction_read_qlc /
+    //          (float)partitions[i].migrationId));
+    fprintf(stderr, "       Average num keys write to qlc: %.f\n",
+            (partitions[i].mig_compaction_write_qlc_num /
              (float)partitions[i].migrationId));
     fprintf(stderr, "       Write to qlc: %.f ns\n",
             (partitions[i].mig_compaction_write_qlc /
@@ -311,8 +317,10 @@ void DBImpl::ResetMigrationStats() {
     partitions[i].mig_pick_lock = 0;
     partitions[i].mig_compaction = 0;
     partitions[i].mig_compaction_lock = 0;
+    partitions[i].mig_compaction_read_optane_num = 0;
     partitions[i].mig_compaction_read_optane = 0;
     partitions[i].mig_compaction_read_qlc = 0;
+    partitions[i].mig_compaction_write_qlc_num = 0;
     partitions[i].mig_compaction_write_qlc = 0;
     partitions[i].mig_remove = 0;
     partitions[i].mig_remove_lock = 0;
@@ -2959,8 +2967,12 @@ Status DBImpl::DoCompactionWork(
 
       if (mig_key_idx < migration_keys.size()) {
         if (prev_mig_key_idx != mig_key_idx) {
+          auto rb = high_resolution_clock::now();
           read_item_key_val(p_ctx->slabContext, &migration_keys[mig_key_idx],
                             &kv);
+          p_ctx->mig_compaction_read_optane +=
+            duration_cast<nanoseconds>(high_resolution_clock::now() - rb).count();
+          p_ctx->mig_compaction_read_optane_num++;
           // HACK: overwrite key with migration_keys_prefix[i]
           (void)encode_size64(kv.buf, migration_keys_prefix[mig_key_idx]);
           prev_mig_key_idx = mig_key_idx;
@@ -3054,9 +3066,13 @@ Status DBImpl::DoCompactionWork(
         }
       }
     } else {  // iterator not valid, migrate optane mig key
+      auto rb = high_resolution_clock::now();
       read_item_key_val(p_ctx->slabContext, &migration_keys[mig_key_idx], &kv);
       // HACK: overwrite key with migration_keys_prefix[i]
       (void)encode_size64(kv.buf, migration_keys_prefix[mig_key_idx]);
+      p_ctx->mig_compaction_read_optane +=
+            duration_cast<nanoseconds>(high_resolution_clock::now() - rb).count();
+      p_ctx->mig_compaction_read_optane_num++;
 
       if (kv.key_size != -1) {
         // auto s11 = high_resolution_clock::now();
@@ -3103,9 +3119,11 @@ Status DBImpl::DoCompactionWork(
       mig_key_idx++;
       total_mig_keys_read++;
       total_keys_written++;
+      p_ctx->mig_compaction_write_qlc_num++;
     } else {
       compact->builder->Add(key, input->value());
       total_keys_written++;
+      p_ctx->mig_compaction_write_qlc_num++;
     }
 
     // Close output file if it is big enough

@@ -33,7 +33,7 @@ def create_config_str(cfg):
     num_partitions = "p"+str(cfg["num_partitions"])
     db_size = "db"+str(int(cfg["db_size"]/1e6))+"M"
     key_size = "k"+str(cfg["key_size"])
-    value_size = "v"+str(cfg["key_size"])
+    value_size = "v"+str(cfg["value_size"])
     num_clients = "c"+str(cfg["num_clients"])
     loop = cfg["loop"].capitalize()[0]+"L"
     workload = "w"+str(cfg["workload"][-1])

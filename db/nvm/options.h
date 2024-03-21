@@ -3,7 +3,7 @@
 
 #define DEBUG 0
 #define PINNING 1
-#define PATH "/home/ashwini/hetsys/optane_ssd/prism/slab-%d-%lu-%lu"
+#define PATH "/users/Ruisong/nvme/prism/slab-%d-%lu-%lu"
 
 /* In memory structures */
 #define BTREE 3

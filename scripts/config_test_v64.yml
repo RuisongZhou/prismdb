@@ -16,7 +16,7 @@ blockcache_size: [0] #blockcache size for caching objects stored on flash (not u
 num_partitions: [8] #number of partitions
 db_size: [100000000] #database size in terms of keys
 key_size: [8] #key size in bytes
-value_size: [256] #value size in bytes
+value_size: [64] #value size in bytes
 
 # below config flags do not need source compilation
 num_clients: [8] #number of database clients (NOTE: it should be same as number of partitions in current version)
