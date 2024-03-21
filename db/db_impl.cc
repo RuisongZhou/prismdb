@@ -1288,7 +1288,7 @@ void DBImpl::MaybeScheduleCompaction(uint8_t pid, MigrationReason reason) {
     p_ctx->background_work_finished_signal.Wait();
   }
 
-  MaybeScheduleCompaction();
+  //MaybeScheduleCompaction();
 }
 
 void DBImpl::MaybeScheduleCompaction() {

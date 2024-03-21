@@ -392,7 +392,7 @@ class DBImpl : public DB {
     uint64_t num_put_reqs = 0;
 
     // migration thresholds
-    float ratelimit_threshold = 0.98; //0.98; //1.0;
+    float ratelimit_threshold = 1; //0.98; //1.0;
     float migration_upper_bound = 0.98; //0.98; //1.0;
     float read_dominated_threshold = 0.95;
     float read_ratio_improv_threshold = 0.05;

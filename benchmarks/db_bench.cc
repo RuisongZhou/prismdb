@@ -106,10 +106,10 @@ static int FLAGS_reads = 10000000;
 static const char* FLAGS_pop_file = nullptr;
 
 // Number of concurrent threads to run.
-static int FLAGS_threads = 1;
+static int FLAGS_threads = 8;
 
 // Number of concurrent threads to load.
-static int FLAGS_load_threads = 1;
+static int FLAGS_load_threads = 8;
 
 // Number of threads in thread pool
 static int FLAGS_threadpool_num = 8;
@@ -4591,9 +4591,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--reads=%d%c", &n, &junk) == 1) {
       FLAGS_reads = n;
     } else if (sscanf(argv[i], "--threads=%d%c", &n, &junk) == 1) {
-      // FLAGS_threads = n;
+      FLAGS_threads = n;
     } else if (sscanf(argv[i], "--load_threads=%d%c", &n, &junk) == 1) {
-      // FLAGS_load_threads = n;
+      FLAGS_load_threads = n;
     } else if (sscanf(argv[i], "--value_size=%d%c", &n, &junk) == 1) {
       FLAGS_value_size = n;
     } else if (sscanf(argv[i], "--write_buffer_size=%d%c", &n, &junk) == 1) {
