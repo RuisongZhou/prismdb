@@ -6,11 +6,11 @@
 
 //#define USE_O_DIRECT
 
-#ifdef USE_O_DIRECT
-  #define PAGE_SIZE (512LU)
-#else
-  #define PAGE_SIZE (4LU*1024LU)
-#endif
+// #ifdef USE_O_DIRECT
+//   #define PAGE_SIZE (512LU)
+// #else
+#define PAGE_SIZE (4LU*1024LU)
+// #endif
 
 struct kv_pair {
    size_t key_size;
