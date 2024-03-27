@@ -477,7 +477,8 @@ void DBImpl::initPartitions(void) {
       } else {
         // ctx->slabs[j] = create_slab_new(partitions[i].slabContext, i, 1024);
         if (j == 0) {
-          ctx->slabs[j] = create_slab_new(partitions[i].slabContext, i, 1024);
+          ctx->slabs[j] = create_slab_new(partitions[i].slabContext, i, myItemSizeBytes);
+          fprintf(stderr, "DEBUG: create slab done, item size %d\n", myItemSizeBytes);
         }
         // if (j == 0) {
         //   ctx->slabs[j] = create_slab_new(partitions[i].slabContext, i, 800);

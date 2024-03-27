@@ -119,8 +119,10 @@ def compile_src_changes(exp_cfg):
         subprocess.call(["sed -i 's/.*uint64_t numPartitions.*/  uint64_t numPartitions = "+str(exp_cfg["num_partitions"])+";/g w /dev/stdout' "+prismdb_src_path+"/db/db_impl.h"], shell=True)
         kv_size = int(exp_cfg["key_size"])+int(exp_cfg["value_size"])
         align_to = 64
+        file_meta = 24
         #https://stackoverflow.com/questions/29925524/how-do-i-round-to-the-next-32-bit-alignment
         subprocess.call(["sed -i 's/.*uint32_t maxKVSizeBytes.*/  uint32_t maxKVSizeBytes = "+str(kv_size+align_to-(kv_size%align_to))+";/g w /dev/stdout' "+prismdb_src_path+"/db/db_impl.h"], shell=True)
+        subprocess.call(["sed -i 's/.*uint32_t myItemSizeBytes.*/  uint32_t myItemSizeBytes = "+str(kv_size+file_meta)+";/g w /dev/stdout' "+prismdb_src_path+"/db/db_impl.h"], shell=True)
         subprocess.call(["sed -i 's/.*static int FLAGS_threadpool_num.*/static int FLAGS_threadpool_num = "+str(exp_cfg["num_partitions"])+";/g w /dev/stdout' "+prismdb_src_path+"/benchmarks/db_bench.cc"], shell=True)
 
         if dbg_skip_src_compilation == False:

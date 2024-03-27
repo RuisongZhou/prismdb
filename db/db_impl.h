@@ -360,6 +360,7 @@ class DBImpl : public DB {
   uint64_t maxDbSizeBytes = 0;
   uint32_t maxKeySizeBytes = 8;
   uint32_t maxKVSizeBytes = 1024;
+  uint32_t myItemSizeBytes = 160;
   float optaneThreshold = 0.23;
   uint64_t maxSstFileSizeBytes = 64*(2<<19); // size of sst files
   uint32_t minSstFileMigThreshold = 0;
