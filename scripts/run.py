@@ -223,13 +223,13 @@ def run_single_exp(exp_cfg, log_folder):
     #  arg_str += " --YCSB_uniform_distribution=1"
     #arg_str += " >& "+log_folder+"output.log"
     print ("COMMAND: sudo cgexec -g memory:mlsm -g cpu:clsm ./db_bench", arg_str)
-    #io = subprocess.Popen("exec ./io.sh "+log_folder+"io.out", stdout=subprocess.PIPE, shell=True)
+    io = subprocess.Popen("exec ./io.sh "+log_folder+"io.out", stdout=subprocess.PIPE, shell=True)
     cpu = subprocess.Popen("exec ./cpu.sh "+log_folder+"cpu.out", stdout=subprocess.PIPE, shell=True)
 
     #subprocess.call(["( cd "+prismdb_src_path+"/build; sudo cgexec -g memory:mlsm -g cpu:clsm ./db_bench "+arg_str+")"], shell=True)
     with open(log_folder+"output.log", 'w') as f:
         subprocess.call(["( cd "+prismdb_src_path+"/build; sudo cgexec -g memory:mlsm -g cpu:clsm ./db_bench "+arg_str+")"], shell=True, stderr=f, stdout=f)
-    #io.kill()
+    io.kill()
     cpu.kill()
   
     # kill background iostat if not killed successfully
