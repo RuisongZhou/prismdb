@@ -7,8 +7,8 @@ cpu_alloc: [10] #cgroup cpu allocation
 # first list all the config flags that need source compilation
 code: ["prismdb"]
 ssd: ["het"] #"het" for optane+flash setting, "optane" for optane only and "qlc" for flash only
-optane_path: ['/users/peiqi714/nvme/prism'] #optane ssd path
-flash_path: ['/users/peiqi714/ssd/prism'] #flash ssd path
+optane_path: ['/users/Ruisong/nvme/prism'] #optane ssd path
+flash_path: ['/users/Ruisong/ssd/prism'] #flash ssd path
 optane_ratio: [0.1] #optane to flash ratio
 pop_cache_size: [0] #clock cache size in terms of keys
 pop_cache_thresh: [0.7] #clock cache optane pinning threshold
