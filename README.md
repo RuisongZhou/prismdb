@@ -8,6 +8,7 @@ This repository contains source code and instructions to reproduce key results i
 
 ```bash
 git clone --recurse-submodules https://github.com/princeton-sns/prismdb.git
+git submodule update --init --recursive
 ```
 
 # Dependencies
