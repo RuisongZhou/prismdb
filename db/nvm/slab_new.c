@@ -32,7 +32,7 @@
 // #include "utils.h"
 //#include "items.h"
 
-#define USE_O_DIRECT
+//#define USE_O_DIRECT
 
 #ifdef USE_O_DIRECT
 int use_o_direct = 1;
@@ -423,15 +423,15 @@ void insert_item_at_idx(struct slab_new *slab, char *item, size_t item_size, siz
 
    // flush and sync
    // JIANAN: TODO: double check this, do we need fflush() or O_SYNC flag when opening this file?
-   // if (!load_phase_){
-   //   int res_sync = fdatasync(slab->fd);
-   //   if (res_sync == -1) {
-   //       fprintf(stderr, "fdatasync fails, error code: %d, error msg: %s\n", errno, strerror(errno));
-   //       res->success = -1;
-   //       return;
-   //     }
-   //   //fprintf(stderr, "%s\n", "fdatasync done");
-   // }
+   if (!load_phase_ && !use_o_direct){
+     int res_sync = fdatasync(slab->fd);
+     if (res_sync == -1) {
+         fprintf(stderr, "fdatasync fails, error code: %d, error msg: %s\n", errno, strerror(errno));
+         res->success = -1;
+         return;
+       }
+     //fprintf(stderr, "%s\n", "fdatasync done");
+   }
 
    res->success = 0;
    //fprintf(stderr, "insert_item_at_index returns\n");
