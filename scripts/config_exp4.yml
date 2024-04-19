@@ -1,6 +1,6 @@
 # hardware config
 mem_alloc: [10737418240] #cgroup dram allocation
-cpu_alloc: [10] #cgroup cpu allocation
+cpu_alloc: [4] #cgroup cpu allocation
 
 # first list all the config flags that need source compilation
 code: ["prismdb"]
