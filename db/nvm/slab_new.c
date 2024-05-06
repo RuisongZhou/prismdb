@@ -423,8 +423,9 @@ void insert_item_at_idx(struct slab_new *slab, char *item, size_t item_size, siz
 
    // flush and sync
    // JIANAN: TODO: double check this, do we need fflush() or O_SYNC flag when opening this file?
-   if (!load_phase_){
+   if (!load_phase_ && !use_o_direct){
      int res_sync = fdatasync(slab->fd);
+     //fprintf(stderr, "in fastsync\n");
      if (res_sync == -1) {
          fprintf(stderr, "fdatasync fails, error code: %d, error msg: %s\n", errno, strerror(errno));
          res->success = -1;
