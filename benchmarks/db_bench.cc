@@ -1942,7 +1942,8 @@ class Benchmark {
 				
 				// Prepare read keys
 				init_latestgen(FLAGS_num);
-				init_zipf_generator(0, FLAGS_num, FLAGS_YCSB_zipfian_alpha);
+				// init_zipf_generator(0, FLAGS_num, FLAGS_YCSB_zipfian_alpha);
+        ZipfianGenerator generator(0, FLAGS_num, FLAGS_YCSB_zipfian_alpha);
         //init_zipf_generator(0, FLAGS_num);
 				long shard_size = FLAGS_num/FLAGS_threads;
 				
@@ -1953,7 +1954,7 @@ class Benchmark {
             if (FLAGS_YCSB_uniform_distribution){ //Generate number from uniform distribution
               k = rand.Next() % FLAGS_num;
             } else { //Default: Generate number from zipf distribution
-              uint64_t temp = nextValue() % FLAGS_num;
+              uint64_t temp = generator.Next() % FLAGS_num;
               std::hash<std::string> hash_str;
               k = hash_str(std::to_string(temp))%FLAGS_num;
             }
@@ -1969,7 +1970,7 @@ class Benchmark {
                 //fprintf(stderr, "random distribution\n");
                 k = rand.Next() % FLAGS_num;
               } else { //Default: Generate number from zipf distribution
-                uint64_t temp = nextValue() % FLAGS_num;
+                uint64_t temp = generator.Next() % FLAGS_num;
                 std::hash<std::string> hash_str;
                 k = hash_str(std::to_string(temp))%FLAGS_num;
               }
@@ -1999,7 +2000,7 @@ class Benchmark {
                   temp = next_value_latestgen() % FLAGS_num;
                 }
                 else{
-                  temp = nextValue() % FLAGS_num;
+                  temp = generator.Next() % FLAGS_num;
                 }
                 std::hash<std::string> hash_str;
                 k = hash_str(std::to_string(temp))%FLAGS_num;
@@ -2013,8 +2014,9 @@ class Benchmark {
 
             // Prepare write keys
             init_latestgen(FLAGS_num);
-            init_zipf_generator(0, FLAGS_num, FLAGS_YCSB_zipfian_alpha_write);
-            fprintf(stderr, "uniform is %d\n", FLAGS_YCSB_uniform_distribution_write);
+            // init_zipf_generator(0, FLAGS_num, FLAGS_YCSB_zipfian_alpha_write);
+            ZipfianGenerator generator(0, FLAGS_num, FLAGS_YCSB_zipfian_alpha_write);
+            // fprintf(stderr, "uniform is %d\n", FLAGS_YCSB_uniform_distribution_write);
             Duration write_duration(0, FLAGS_reads * (1 - FLAGS_read_ratio + epsilon));
             //Duration write_duration(0, FLAGS_reads);
             while (!write_duration.Done(1)) {
@@ -2023,7 +2025,7 @@ class Benchmark {
                 //fprintf(stderr, "random distribution\n");
                 k = rand.Next() % FLAGS_num;
               } else { //Default: Generate number from zipf distribution
-                uint64_t temp = nextValue() % FLAGS_num;
+                uint64_t temp = generator.Next() % FLAGS_num;
                 std::hash<std::string> hash_str;
                 k = hash_str(std::to_string(temp))%FLAGS_num;
               }
@@ -3569,9 +3571,9 @@ class Benchmark {
     //ReadOptions options(FLAGS_verify_checksum, true);
     ReadOptions options;
     RandomGenerator gen;
-    init_latestgen(FLAGS_num);
-    init_zipf_generator(0, FLAGS_num, FLAGS_YCSB_zipfian_alpha);
-
+    // init_latestgen(FLAGS_num);
+    // init_zipf_generator(0, FLAGS_num, FLAGS_YCSB_zipfian_alpha);
+    ZipfianGenerator generator(0, FLAGS_num, FLAGS_YCSB_zipfian_alpha);
     std::string value;
     long shard_size = FLAGS_num/FLAGS_threadpool_num;
     thread->reads_done = 0;
@@ -3592,7 +3594,7 @@ class Benchmark {
 				k = thread->rand.Next() % FLAGS_num;
 			} else { //default
 				//Generate number from zipf distribution
-				uint64_t temp = nextValue() % FLAGS_num;
+				uint64_t temp = generator.Next() % FLAGS_num;
 				std::hash<std::string> hash_str;    
 				k = hash_str(std::to_string(temp))%FLAGS_num;
 			}
@@ -3645,9 +3647,9 @@ class Benchmark {
     //ReadOptions options(FLAGS_verify_checksum, true);
     ReadOptions options;
     RandomGenerator gen;
-    init_latestgen(FLAGS_num);
-    init_zipf_generator(0, FLAGS_num, FLAGS_YCSB_zipfian_alpha);
-
+    // init_latestgen(FLAGS_num);
+    // init_zipf_generator(0, FLAGS_num, FLAGS_YCSB_zipfian_alpha);
+    ZipfianGenerator generator(0, FLAGS_num, FLAGS_YCSB_zipfian_alpha);
 		// set open-loop batch size to be 50 kops per sec 
 		// batch_size needs to be a full multiple of shard size
     int batch_size = 150000;
@@ -3678,7 +3680,7 @@ class Benchmark {
           k = thread->rand.Next() % FLAGS_num;
         } else { //default
           //Generate number from zipf distribution
-          uint64_t temp = nextValue() % FLAGS_num;
+          uint64_t temp = generator.Next() % FLAGS_num;
           std::hash<std::string> hash_str;    
           k = hash_str(std::to_string(temp))%FLAGS_num;
         }

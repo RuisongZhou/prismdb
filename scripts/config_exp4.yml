@@ -12,7 +12,7 @@ pop_cache_size: [0] #clock cache size in terms of keys
 pop_cache_thresh: [0.7] #clock cache optane pinning threshold
 blockcache_size: [0] #blockcache size for caching objects stored on flash (not used)
 num_partitions: [8] #number of partitions
-db_size: [100000000] #database size in terms of keys
+db_size: [800000000] #database size in terms of keys
 key_size: [8] #key size in bytes
 value_size: [128] #value size in bytes
 
@@ -21,7 +21,7 @@ num_clients: [8] #number of database clients (NOTE: it should be same as number 
 loop: ["close"]
 workload: ["ycsba"] #ycsb workload "ycsba", "ycsbb", "ycsbc", ycsbd", "ycsbe", "ycsbf"
 distribution: ["zipfian"] # deprecated
-distribution_param: [(0.99 -1)] #(reads distibution, writes distribution). 0 stands for uniform and -1 stands for both read and write coming from the same distribution. distribution_param [(0.99 -1)] means both reads and writes follow Zipfian 0.99
+distribution_param: [(0.86 -1)] #(reads distibution, writes distribution). 0 stands for uniform and -1 stands for both read and write coming from the same distribution. distribution_param [(0.99 -1)] means both reads and writes follow Zipfian 0.99
 read_ratio: [0.5] #reads to writes ratio
 workload_operations: [100000000] #number of operations
 warmup_ratio: [0] #warmup ratio

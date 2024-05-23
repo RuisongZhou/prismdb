@@ -41,27 +41,50 @@ sed -i 's/(0.8 -1)/(0.99 -1)/' config_exp2.yml
 sudo python3 run.py config_exp2.yml my_ycsb_log_exp2
 sed -i 's/(0.99 -1)/(1.2 -1)/' config_exp2.yml
 sudo python3 run.py config_exp2.yml my_ycsb_log_exp2
+# mix
+sed -i 's/read_ratio: \[1\]/read_ratio: \[0.5\]/' config_exp2.yml
+sudo python3 run.py config_exp2.yml my_ycsb_log_exp2
+sed -i 's/(0 -1)/(0.4 -1)/' config_exp2.yml
+sudo python3 run.py config_exp2.yml my_ycsb_log_exp2
+sed -i 's/(0.4 -1)/(0.6 -1)/' config_exp2.yml
+sudo python3 run.py config_exp2.yml my_ycsb_log_exp2
+sed -i 's/(0.6 -1)/(0.8 -1)/' config_exp2.yml
+sudo python3 run.py config_exp2.yml my_ycsb_log_exp2
+sed -i 's/(0.8 -1)/(0.99 -1)/' config_exp2.yml
+sudo python3 run.py config_exp2.yml my_ycsb_log_exp2
+sed -i 's/(0.99 -1)/(1.2 -1)/' config_exp2.yml
+sudo python3 run.py config_exp2.yml my_ycsb_log_exp2
 
 sed -i 's/(1.2 -1)/(0 -1)/' config_exp2.yml
-sed -i 's/read_ratio: \[1\]/read_ratio: \[0\]/' config_exp2.yml
+sed -i 's/read_ratio: \[0.5\]/read_ratio: \[0\]/' config_exp2.yml
 echo "Experiment 2 done"
 
 echo "Running Experiment 3"
-sudo python3 run.py config_exp3.yml my_ycsb_log_exp3
 sed -i 's/value_size: \[16\]/value_size: \[32\]/' config_exp3.yml
 sudo python3 run.py config_exp3.yml my_ycsb_log_exp3
+
 sed -i 's/value_size: \[32\]/value_size: \[64\]/' config_exp3.yml
+sed -i 's/db_size: \[3200000000\]/db_size: \[1600000000\]/' config_exp3.yml
 sudo python3 run.py config_exp3.yml my_ycsb_log_exp3
+
 sed -i 's/value_size: \[64\]/value_size: \[128\]/' config_exp3.yml
+sed -i 's/db_size: \[1600000000\]/db_size: \[800000000\]/' config_exp3.yml
 sudo python3 run.py config_exp3.yml my_ycsb_log_exp3
+
 sed -i 's/value_size: \[128\]/value_size: \[256\]/' config_exp3.yml
+sed -i 's/db_size: \[800000000\]/db_size: \[400000000\]/' config_exp3.yml
 sudo python3 run.py config_exp3.yml my_ycsb_log_exp3
+
 sed -i 's/value_size: \[256\]/value_size: \[512\]/' config_exp3.yml
+sed -i 's/db_size: \[400000000\]/db_size: \[200000000\]/' config_exp3.yml
 sudo python3 run.py config_exp3.yml my_ycsb_log_exp3
+
 sed -i 's/value_size: \[512\]/value_size: \[980\]/' config_exp3.yml
+sed -i 's/db_size: \[200000000\]/db_size: \[100000000\]/' config_exp3.yml
 sudo python3 run.py config_exp3.yml my_ycsb_log_exp3
 
 sed -i 's/value_size: \[980\]/value_size: \[16\]/' config_exp3.yml
+sed -i 's/db_size: \[100000000\]/db_size: \[3200000000\]/' config_exp3.yml
 echo "Experiment 3 done"
 
 echo "Running Experiment 4"
